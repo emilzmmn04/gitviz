@@ -3,6 +3,12 @@ name = "gitviz"
 version = "0.1.0"
 edition = "2021"
 description = "Terminal Git repository visualizer"
+license = "MIT"
+repository = "https://github.com/emilzmmn04/gitviz"
+homepage = "https://github.com/emilzmmn04/gitviz"
+readme = "README.md"
+keywords = ["git", "tui", "terminal", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "gitviz"

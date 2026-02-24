@@ -1,0 +1,36 @@
+{
+  "name": "@emilzmmn04/gitviz",
+  "version": "0.1.0",
+  "description": "Terminal Git repository visualizer",
+  "license": "MIT",
+  "homepage": "https://github.com/emilzmmn04/gitviz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emilzmmn04/gitviz.git"
+  },
+  "bugs": {
+    "url": "https://github.com/emilzmmn04/gitviz/issues"
+  },
+  "bin": {
+    "gitviz": "bin/gitviz.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

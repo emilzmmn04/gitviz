@@ -26,7 +26,7 @@ A fast, keyboard-driven terminal UI for visualizing Git commit history.
 
 ## Install
 
-**From source (requires Rust ≥ 1.70):**
+### Cargo (source install, Rust >= 1.70)
 
 ```bash
 git clone https://github.com/emilzmmn04/gitviz.git
@@ -34,7 +34,32 @@ cd gitviz
 cargo install --path .
 ```
 
-**Or run without installing:**
+### npm (prebuilt binary)
+
+```bash
+npm i -g @emilzmmn04/gitviz
+```
+
+### Homebrew (prebuilt binary)
+
+```bash
+brew tap emilzmmn04/tap
+brew install gitviz
+```
+
+### APT (prebuilt binary)
+
+```bash
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://emilzmmn04.github.io/gitviz/apt/keyrings/gitviz-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/gitviz-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/gitviz-archive-keyring.gpg] https://emilzmmn04.github.io/gitviz/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/gitviz.list >/dev/null
+sudo apt update
+sudo apt install gitviz
+```
+
+### Run without installing
 
 ```bash
 cargo run -- --max 100
@@ -88,6 +113,21 @@ gitviz --repo ~/projects/myapp --max 100 --all false
 | `--repo <path>` | `.` | Path to the git repository |
 | `--no-color` | — | Disable colours (flag accepted, TUI always uses colours) |
 
+## Release Artifacts
+
+Every `vX.Y.Z` tag publishes:
+
+- `gitviz-v{version}-{target}.tar.gz`
+- `gitviz-v{version}-{target}.sha256`
+- `gitviz_{version}_amd64.deb`
+
+Current binary targets:
+
+- `x86_64-unknown-linux-gnu`
+- `aarch64-unknown-linux-gnu`
+- `x86_64-apple-darwin`
+- `aarch64-apple-darwin`
+
 ## Requirements
 
 - Git ≥ 2.0 installed and on `$PATH`
@@ -127,6 +167,17 @@ src/
 | [crossterm](https://github.com/crossterm-rs/crossterm) | Cross-platform terminal control |
 | [clap](https://github.com/clap-rs/clap) | CLI argument parsing |
 | [anyhow](https://github.com/dtolnay/anyhow) | Error handling |
+
+## Package Automation
+
+Release automation lives in `.github/workflows/release.yml` and can publish all package channels from a single tag push.
+
+Optional repository secrets (only needed for the corresponding channel):
+
+- `NPM_TOKEN` for npm publishing (`@emilzmmn04/gitviz`)
+- `HOMEBREW_TAP_GITHUB_TOKEN` for updating `emilzmmn04/homebrew-tap`
+- `APT_GPG_PRIVATE_KEY` for signing APT metadata
+- `APT_GPG_PASSPHRASE` when the APT key is passphrase-protected
 
 ## Contributing
 
