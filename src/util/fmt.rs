@@ -40,15 +40,14 @@ pub fn format_relative(ts: i64) -> String {
 
 /// Format a Unix timestamp as an ISO-8601 date string (UTC).
 pub fn format_iso(ts: i64) -> String {
-    // Manual UTC date formatting without external deps
-    let secs = ts as u64;
-    let days_since_epoch = secs / 86400;
-    let time_of_day = secs % 86400;
-    let h = time_of_day / 3600;
-    let m = (time_of_day % 3600) / 60;
+    let ts = ts as i128;
+    let days_since_epoch = ts.div_euclid(86_400);
+    let time_of_day = ts.rem_euclid(86_400);
+    let h = time_of_day / 3_600;
+    let m = (time_of_day % 3_600) / 60;
     let s = time_of_day % 60;
 
-    let (year, month, day) = days_to_ymd(days_since_epoch);
+    let (year, month, day) = civil_from_days(days_since_epoch);
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
         year, month, day, h, m, s
@@ -69,36 +68,24 @@ fn plural(n: i64) -> &'static str {
     }
 }
 
-/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
-fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
-    // Simplified Gregorian calendar calculation
-    let mut year = 1970u64;
-    loop {
-        let y_days = if is_leap(year) { 366 } else { 365 };
-        if days < y_days {
-            break;
-        }
-        days -= y_days;
+/// Convert days since Unix epoch (1970-01-01) to (year, month, day) in UTC.
+/// Uses constant-time Gregorian conversion with integer arithmetic.
+fn civil_from_days(days_since_epoch: i128) -> (i128, i128, i128) {
+    // Shift from Unix epoch (1970-01-01) to civil epoch (0000-03-01).
+    let z = days_since_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let month = mp + if mp < 10 { 3 } else { -9 }; // [1, 12]
+    if month <= 2 {
         year += 1;
     }
-    let month_days = if is_leap(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    let mut month = 1u64;
-    for &md in &month_days {
-        if days < md {
-            break;
-        }
-        days -= md;
-        month += 1;
-    }
-    (year, month, days + 1)
-}
 
-fn is_leap(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (year, month, day)
 }
 
 #[cfg(test)]
@@ -114,5 +101,20 @@ mod tests {
     #[test]
     fn test_format_iso_epoch() {
         assert_eq!(format_iso(0), "1970-01-01 00:00:00 UTC");
+    }
+
+    #[test]
+    fn test_format_iso_negative_second() {
+        assert_eq!(format_iso(-1), "1969-12-31 23:59:59 UTC");
+    }
+
+    #[test]
+    fn test_format_iso_extreme_timestamps() {
+        let min = format_iso(i64::MIN);
+        let max = format_iso(i64::MAX);
+        assert!(min.ends_with(" UTC"));
+        assert!(max.ends_with(" UTC"));
+        assert!(min.contains(':'));
+        assert!(max.contains(':'));
     }
 }

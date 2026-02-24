@@ -1,31 +1,51 @@
 use super::model::Commit;
 
+#[derive(Debug, Default)]
+pub struct ParseCommitsReport {
+    pub commits: Vec<Commit>,
+    pub total_records: usize,
+    pub rejected_records: usize,
+    pub first_error: Option<String>,
+}
+
 /// Parse commits from `git log --format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1e` output.
 /// Records are delimited by ASCII record separator (0x1e).
 /// Fields within each record are delimited by ASCII unit separator (0x1f).
-pub fn parse_commits(output: &str) -> Vec<Commit> {
-    output
-        .split('\x1e')
-        .filter_map(parse_commit_record)
-        .collect()
-}
+pub fn parse_commits(output: &str) -> ParseCommitsReport {
+    let mut report = ParseCommitsReport::default();
 
-fn parse_commit_record(record: &str) -> Option<Commit> {
-    let record = record.trim();
-    if record.is_empty() {
-        return None;
+    for record in output.split('\x1e') {
+        let record = record.trim();
+        if record.is_empty() {
+            continue;
+        }
+
+        report.total_records += 1;
+        match parse_commit_record(record) {
+            Ok(commit) => report.commits.push(commit),
+            Err(err) => {
+                report.rejected_records += 1;
+                if report.first_error.is_none() {
+                    report.first_error = Some(format!("record #{}: {}", report.total_records, err));
+                }
+            }
+        }
     }
 
+    report
+}
+
+fn parse_commit_record(record: &str) -> Result<Commit, String> {
     // splitn(6, ...) so that subject (field 6) is kept intact even if it
     // somehow contained the separator (unlikely but safe).
     let parts: Vec<&str> = record.splitn(6, '\x1f').collect();
     if parts.len() < 6 {
-        return None;
+        return Err(format!("missing fields: expected 6, got {}", parts.len()));
     }
 
     let oid = parts[0].trim().to_string();
     if oid.is_empty() {
-        return None;
+        return Err("empty commit hash".to_string());
     }
 
     let parents: Vec<String> = parts[1]
@@ -36,11 +56,14 @@ fn parse_commit_record(record: &str) -> Option<Commit> {
 
     let author = parts[2].trim().to_string();
     let author_email = parts[3].trim().to_string();
-    let timestamp = parts[4].trim().parse::<i64>().ok()?;
+    let timestamp_raw = parts[4].trim();
+    let timestamp = timestamp_raw
+        .parse::<i64>()
+        .map_err(|_| format!("invalid timestamp '{}'", timestamp_raw))?;
     // subject may have trailing \n from git's tformat
     let subject = parts[5].trim_end_matches('\n').to_string();
 
-    Some(Commit {
+    Ok(Commit {
         oid,
         parents,
         author,
@@ -132,10 +155,40 @@ mod tests {
         let record1 = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst";
         let record2 = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1f999\x1fSecond";
         let input = format!("{}\x1e{}\x1e", record1, record2);
-        let commits = parse_commits(&input);
-        assert_eq!(commits.len(), 2);
-        assert_eq!(commits[0].oid, "aaa");
-        assert_eq!(commits[1].oid, "bbb");
-        assert_eq!(commits[1].parents, vec!["aaa"]);
+        let report = parse_commits(&input);
+        assert_eq!(report.total_records, 2);
+        assert_eq!(report.rejected_records, 0);
+        assert!(report.first_error.is_none());
+        assert_eq!(report.commits.len(), 2);
+        assert_eq!(report.commits[0].oid, "aaa");
+        assert_eq!(report.commits[1].oid, "bbb");
+        assert_eq!(report.commits[1].parents, vec!["aaa"]);
+    }
+
+    #[test]
+    fn test_parse_commits_invalid_timestamp_is_rejected() {
+        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond";
+        let report = parse_commits(&format!("{}\x1e", bad));
+        assert_eq!(report.total_records, 1);
+        assert_eq!(report.rejected_records, 1);
+        assert!(report.commits.is_empty());
+        assert!(
+            report
+                .first_error
+                .as_deref()
+                .unwrap_or("")
+                .contains("invalid timestamp")
+        );
+    }
+
+    #[test]
+    fn test_parse_commits_mixed_valid_and_invalid() {
+        let good = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst";
+        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond";
+        let report = parse_commits(&format!("{}\x1e{}\x1e", good, bad));
+        assert_eq!(report.total_records, 2);
+        assert_eq!(report.rejected_records, 1);
+        assert_eq!(report.commits.len(), 1);
+        assert_eq!(report.commits[0].oid, "aaa");
     }
 }

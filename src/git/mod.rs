@@ -2,7 +2,7 @@ pub mod commands;
 pub mod model;
 pub mod parser;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use model::{Commit, Refs};
 use std::path::Path;
 
@@ -41,13 +41,30 @@ pub fn load_commits(
     let output = commands::run_git(repo, &args)
         .with_context(|| format!("Failed to load commits from {}", repo.display()))?;
 
-    let commits = parser::parse_commits(&output);
-    if commits.is_empty() && output.trim().is_empty() {
+    parse_git_log_output(&output)
+}
+
+fn parse_git_log_output(output: &str) -> Result<Vec<Commit>> {
+    let report = parser::parse_commits(output);
+    if report.commits.is_empty() && output.trim().is_empty() {
         // Repository might be empty (no commits yet)
         return Ok(Vec::new());
     }
 
-    Ok(commits)
+    if report.rejected_records > 0 {
+        let first_error = report
+            .first_error
+            .as_deref()
+            .unwrap_or("unknown parse error");
+        bail!(
+            "Malformed git log output: rejected {} of {} record(s); first error: {}",
+            report.rejected_records,
+            report.total_records,
+            first_error
+        );
+    }
+
+    Ok(report.commits)
 }
 
 /// Load refs (HEAD, branches, tags) from the repository.
@@ -81,4 +98,34 @@ pub fn check_repo(repo: &Path) -> Result<()> {
     commands::run_git(repo, &["rev-parse", "--git-dir"])
         .with_context(|| format!("{} is not a git repository", repo.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_git_log_output;
+
+    #[test]
+    fn test_parse_git_log_output_empty_is_ok() {
+        let commits = parse_git_log_output("").expect("empty output should be accepted");
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_parse_git_log_output_valid_is_ok() {
+        let output = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst\x1e";
+        let commits = parse_git_log_output(output).expect("valid output should parse");
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].oid, "aaa");
+    }
+
+    #[test]
+    fn test_parse_git_log_output_rejects_malformed_records() {
+        let valid = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst";
+        let invalid = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond";
+        let output = format!("{}\x1e{}\x1e", valid, invalid);
+        let err = parse_git_log_output(&output).expect_err("must fail when any row is malformed");
+        let msg = err.to_string();
+        assert!(msg.contains("rejected 1 of 2"));
+        assert!(msg.contains("invalid timestamp"));
+    }
 }
