@@ -29,7 +29,7 @@ A fast, keyboard-driven terminal UI for visualizing Git commit history.
 **From source (requires Rust ≥ 1.70):**
 
 ```bash
-git clone https://github.com/emilzmmnn04/gitviz.git
+git clone https://github.com/emilzmmn04/gitviz.git
 cd gitviz
 cargo install --path .
 ```
@@ -133,7 +133,7 @@ src/
 Contributions are welcome! Please open an issue before submitting a large PR.
 
 ```bash
-git clone https://github.com/emilzmmnn04/gitviz.git
+git clone https://github.com/emilzmmn04/gitviz.git
 cd gitviz
 cargo test        # run all tests
 cargo clippy      # lint
