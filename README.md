@@ -179,6 +179,44 @@ Optional repository secrets (only needed for the corresponding channel):
 - `APT_GPG_PRIVATE_KEY` for signing APT metadata
 - `APT_GPG_PASSPHRASE` when the APT key is passphrase-protected
 
+## Railway Landing Page Prelaunch
+
+The repository includes a static landing-page prelaunch workflow:
+
+- `.github/workflows/prelaunch-checklist.yml`
+
+It validates:
+
+- Release workflow secret gates in `.github/workflows/release.yml`
+- Package manager secrets and APT private key format
+- Landing page availability (`200` + `text/html`) on Railway URL
+- Optional custom domain HTTPS endpoint
+
+You can run the checks locally:
+
+```bash
+# 1) Verify release workflow gates
+./scripts/verify_release_workflow_gates.sh
+
+# 2) Verify required release secrets and key material
+export NPM_TOKEN=...
+export HOMEBREW_TAP_GITHUB_TOKEN=...
+export APT_GPG_PRIVATE_KEY='-----BEGIN PGP PRIVATE KEY BLOCK-----...'
+# export APT_GPG_PASSPHRASE=...   # optional
+./scripts/check_release_secrets.sh
+
+# 3) Smoke-test Railway landing page
+./scripts/check_landing_page.sh https://<your-railway-url>
+# optional custom domain check
+./scripts/check_landing_page.sh https://<your-railway-url> <your-custom-domain>
+```
+
+Or run the same checks in GitHub Actions:
+
+- Open `Prelaunch Checklist` workflow
+- Provide `landing_url`
+- Optionally provide `custom_domain`
+
 ## Contributing
 
 Contributions are welcome! Please open an issue before submitting a large PR.

@@ -1,0 +1,57 @@
+name: Prelaunch Checklist
+
+on:
+  workflow_dispatch:
+    inputs:
+      landing_url:
+        description: "Railway public URL for the landing page"
+        required: true
+        type: string
+      custom_domain:
+        description: "Optional custom domain to validate (example: gitviz.dev)"
+        required: false
+        type: string
+
+jobs:
+  verify-release-workflow-gates:
+    name: Verify release workflow secret gates
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify release workflow gates
+        run: ./scripts/verify_release_workflow_gates.sh
+
+  verify-release-secrets:
+    name: Verify package manager secrets and APT key
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate secrets
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: ./scripts/check_release_secrets.sh
+
+  smoke-test-landing-page:
+    name: Smoke test Railway landing page
+    runs-on: ubuntu-24.04
+    needs:
+      - verify-release-workflow-gates
+      - verify-release-secrets
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run landing page smoke checks
+        run: |
+          if [[ -n "${{ inputs.custom_domain }}" ]]; then
+            ./scripts/check_landing_page.sh "${{ inputs.landing_url }}" "${{ inputs.custom_domain }}"
+          else
+            ./scripts/check_landing_page.sh "${{ inputs.landing_url }}"
+          fi
