@@ -559,7 +559,6 @@
     <div class="tabs">
       <button class="tab on" data-for="p-npm">npm</button>
       <button class="tab"    data-for="p-brew">brew</button>
-      <button class="tab"    data-for="p-apt">apt</button>
       <button class="tab"    data-for="p-cargo">cargo</button>
     </div>
 
@@ -586,24 +585,6 @@ brew install gitviz">copy</button>
         <div class="cb-body">
           <div><span class="p">$ </span><span class="c">brew tap emilzmmn04/tap</span></div>
           <div><span class="p">$ </span><span class="c">brew install gitviz</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="pane" id="p-apt">
-      <div class="cb">
-        <div class="cb-head">
-          <span>APT — Debian / Ubuntu</span>
-          <button class="cpbtn" id="apt-btn">copy</button>
-        </div>
-        <div class="cb-body sm">
-          <div><span class="p">$ </span><span class="c">sudo mkdir -p /etc/apt/keyrings</span></div>
-          <div><span class="p">$ </span><span class="c">curl -fsSL https://emilzmmn04.github.io/gitviz/apt/keyrings/gitviz-archive-keyring.gpg \</span></div>
-          <div><span class="p">  </span><span class="c">  | sudo tee /etc/apt/keyrings/gitviz-archive-keyring.gpg &gt;/dev/null</span></div>
-          <div><span class="p">$ </span><span class="c">echo "deb [signed-by=/etc/apt/keyrings/gitviz-archive-keyring.gpg] \</span></div>
-          <div><span class="p">  </span><span class="c">  https://emilzmmn04.github.io/gitviz/apt stable main" \</span></div>
-          <div><span class="p">  </span><span class="c">  | sudo tee /etc/apt/sources.list.d/gitviz.list &gt;/dev/null</span></div>
-          <div><span class="p">$ </span><span class="c">sudo apt update &amp;&amp; sudo apt install gitviz</span></div>
         </div>
       </div>
     </div>
@@ -732,18 +713,6 @@ document.querySelectorAll('.tab').forEach(t => {
 });
 
 // ── Copy to clipboard ─────────────────────────────────────────────────────────
-const APT_TEXT =
-`sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://emilzmmn04.github.io/gitviz/apt/keyrings/gitviz-archive-keyring.gpg \\
-  | sudo tee /etc/apt/keyrings/gitviz-archive-keyring.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/gitviz-archive-keyring.gpg] https://emilzmmn04.github.io/gitviz/apt stable main" \\
-  | sudo tee /etc/apt/sources.list.d/gitviz.list >/dev/null
-sudo apt update && sudo apt install gitviz`;
-
-document.getElementById('apt-btn').addEventListener('click', function () {
-  doCopy(this, APT_TEXT);
-});
-
 document.querySelectorAll('.cpbtn[data-text]').forEach(btn => {
   btn.addEventListener('click', function () { doCopy(this, this.dataset.text); });
 });

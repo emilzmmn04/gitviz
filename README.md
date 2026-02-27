@@ -47,18 +47,6 @@ brew tap emilzmmn04/tap
 brew install gitviz
 ```
 
-### APT (prebuilt binary)
-
-```bash
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://emilzmmn04.github.io/gitviz/apt/keyrings/gitviz-archive-keyring.gpg \
-  | sudo tee /etc/apt/keyrings/gitviz-archive-keyring.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/gitviz-archive-keyring.gpg] https://emilzmmn04.github.io/gitviz/apt stable main" \
-  | sudo tee /etc/apt/sources.list.d/gitviz.list >/dev/null
-sudo apt update
-sudo apt install gitviz
-```
-
 ### Run without installing
 
 ```bash
@@ -176,8 +164,6 @@ Optional repository secrets (only needed for the corresponding channel):
 
 - `NPM_TOKEN` for npm publishing (`@emilzmmn04/gitviz`)
 - `HOMEBREW_TAP_GITHUB_TOKEN` for updating `emilzmmn04/homebrew-tap`
-- `APT_GPG_PRIVATE_KEY` for signing APT metadata
-- `APT_GPG_PASSPHRASE` when the APT key is passphrase-protected
 
 ## Railway Landing Page Prelaunch
 
@@ -188,7 +174,7 @@ The repository includes a static landing-page prelaunch workflow:
 It validates:
 
 - Release workflow secret gates in `.github/workflows/release.yml`
-- Package manager secrets and APT private key format
+- Package manager secrets
 - Landing page availability (`200` + `text/html`) on Railway URL
 - Optional custom domain HTTPS endpoint
 
@@ -201,8 +187,6 @@ You can run the checks locally:
 # 2) Verify required release secrets and key material
 export NPM_TOKEN=...
 export HOMEBREW_TAP_GITHUB_TOKEN=...
-export APT_GPG_PRIVATE_KEY='-----BEGIN PGP PRIVATE KEY BLOCK-----...'
-# export APT_GPG_PASSPHRASE=...   # optional
 ./scripts/check_release_secrets.sh
 
 # 3) Smoke-test Railway landing page
