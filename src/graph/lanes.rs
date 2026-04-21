@@ -109,6 +109,7 @@ mod tests {
             author_email: "t@t.com".to_string(),
             timestamp: 0,
             subject: "test".to_string(),
+            body: String::new(),
         }
     }
 

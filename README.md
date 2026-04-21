@@ -18,8 +18,8 @@ A fast, keyboard-driven terminal UI for visualizing Git commit history.
 
 - **Lane-based commit graph** — parallel branches rendered as colour-coded columns
 - **Ref labels** — HEAD, local branches, remote branches, and tags shown inline
-- **Commit details panel** — full hash, author, date, and message on selection
-- **Fuzzy search** — live filter commits by message substring
+- **Commit details panel** — hash, author, date, parents, subject, and body preview
+- **Multi-field search** — live filter by subject, body, author, hash, email, or refs
 - **Keyboard navigation** — vim-style (`j`/`k`) and arrow keys
 - **Fast** — single `git log` call, no libgit2 dependency
 - **Works on macOS and Linux**
@@ -71,11 +71,11 @@ gitviz --max 50
 # HEAD branch only (skip other branches)
 gitviz --all false
 
-# Exclude history older than a revision
-gitviz --since HEAD~500
+# Exclude commits reachable from a revision boundary
+gitviz --exclude-reachable-from HEAD~500
 
 # Combine flags
-gitviz --repo ~/projects/myapp --max 100 --all false
+gitviz --repo ~/projects/myapp --max 100 --all false --exclude-reachable-from HEAD~500
 ```
 
 ## Key Bindings
@@ -87,7 +87,8 @@ gitviz --repo ~/projects/myapp --max 100 --all false
 | `g` / `Home` | Jump to newest commit (top) |
 | `G` / `End` | Jump to oldest commit (bottom) |
 | `Enter` | Toggle details panel expand / collapse |
-| `/` | Enter search mode — filter by commit message |
+| `r` | Reload repository state |
+| `/` | Enter search mode — filter by subject, body, author, hash, email, or refs |
 | `Esc` | Clear search filter, return to normal mode |
 | `q` | Quit |
 
@@ -97,9 +98,9 @@ gitviz --repo ~/projects/myapp --max 100 --all false
 |---|---|---|
 | `--all` | `true` | Show all branches |
 | `--max <N>` | `200` | Maximum commits to load |
-| `--since <rev>` | — | Exclude commits reachable from this revision |
+| `--exclude-reachable-from <rev>` | — | Exclude commits reachable from this revision boundary |
 | `--repo <path>` | `.` | Path to the git repository |
-| `--no-color` | — | Disable colours (flag accepted, TUI always uses colours) |
+| `--no-color` | — | Disable coloured styling and use monochrome rendering |
 
 ## Release Artifacts
 
@@ -159,6 +160,7 @@ src/
 ## Package Automation
 
 Release automation lives in `.github/workflows/release.yml` and can publish all package channels from a single tag push.
+Standard validation lives in `.github/workflows/ci.yml` and runs formatting, tests, and clippy on pushes and pull requests.
 
 Optional repository secrets (only needed for the corresponding channel):
 
@@ -208,6 +210,7 @@ Contributions are welcome! Please open an issue before submitting a large PR.
 ```bash
 git clone https://github.com/emilzmmn04/gitviz.git
 cd gitviz
+rustup component add rustfmt clippy
 cargo test        # run all tests
 cargo clippy      # lint
 cargo fmt         # format

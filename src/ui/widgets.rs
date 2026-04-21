@@ -19,7 +19,7 @@ pub fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
         .map(|&commit_idx| {
             let commit = &app.commits[commit_idx];
             let node = &app.graph[commit_idx];
-            graph_list_item(commit_idx, commit, node, &app.refs)
+            graph_list_item(app, commit, node, &app.refs)
         })
         .collect();
 
@@ -38,13 +38,9 @@ pub fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .title_style(Style::default().fg(Color::Cyan)),
+                .title_style(title_style(app)),
         )
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
+        .highlight_style(list_highlight_style(app))
         .highlight_symbol("▶ ");
 
     let mut state = ListState::default();
@@ -56,7 +52,7 @@ pub fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn graph_list_item<'a>(
-    _commit_idx: usize,
+    app: &'a App,
     commit: &'a crate::git::model::Commit,
     node: &'a GraphNode,
     refs: &'a Refs,
@@ -68,24 +64,23 @@ fn graph_list_item<'a>(
     let mut spans: Vec<Span> = Vec::new();
 
     // Graph prefix — colour by lane to give visual distinction
-    let lane_color = lane_to_color(node.lane);
-    spans.push(Span::styled(prefix, Style::default().fg(lane_color)));
+    let prefix_style = if app.colors_enabled {
+        Style::default().fg(lane_to_color(node.lane))
+    } else {
+        Style::default()
+    };
+    spans.push(Span::styled(prefix, prefix_style));
     spans.push(Span::raw(" "));
 
     // Short hash
-    spans.push(Span::styled(
-        hash.to_string(),
-        Style::default().fg(Color::Yellow),
-    ));
+    spans.push(Span::styled(hash.to_string(), accent_style(app)));
     spans.push(Span::raw(" "));
 
     // Ref labels
     for label in &labels {
         spans.push(Span::styled(
             format!("[{}]", label),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
+            ref_style(app),
         ));
         spans.push(Span::raw(" "));
     }
@@ -101,7 +96,7 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Details ")
-        .title_style(Style::default().fg(Color::Cyan));
+        .title_style(title_style(app));
 
     let Some(commit) = app.selected_commit() else {
         let p = Paragraph::new("No commits to display.").block(block);
@@ -110,20 +105,17 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let hash_line = Line::from(vec![
-        Span::styled("Commit  ", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            commit.oid.clone(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("Commit  ", accent_style(app)),
+        Span::styled(commit.oid.clone(), strong_style(app)),
     ]);
 
     let author_line = Line::from(vec![
-        Span::styled("Author  ", Style::default().fg(Color::Yellow)),
+        Span::styled("Author  ", accent_style(app)),
         Span::raw(format!("{} <{}>", commit.author, commit.author_email)),
     ]);
 
     let date_line = Line::from(vec![
-        Span::styled("Date    ", Style::default().fg(Color::Yellow)),
+        Span::styled("Date    ", accent_style(app)),
         Span::raw(format!(
             "{}  ({})",
             format_iso(commit.timestamp),
@@ -131,22 +123,35 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
         )),
     ]);
 
+    let parents_line = if commit.parents.is_empty() {
+        Line::from(vec![
+            Span::styled("Parents ", accent_style(app)),
+            Span::raw("root commit"),
+        ])
+    } else {
+        let mut spans = vec![Span::styled("Parents ", accent_style(app))];
+        for (i, parent) in commit.parents.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(", "));
+            }
+            spans.push(Span::raw(short_hash(parent).to_string()));
+        }
+        Line::from(spans)
+    };
+
     let labels = app.refs.labels_for(&commit.oid);
     let refs_line = if labels.is_empty() {
         Line::from(vec![
-            Span::styled("Refs    ", Style::default().fg(Color::Yellow)),
-            Span::raw("—"),
+            Span::styled("Refs    ", accent_style(app)),
+            Span::raw("none"),
         ])
     } else {
-        let mut spans = vec![Span::styled("Refs    ", Style::default().fg(Color::Yellow))];
+        let mut spans = vec![Span::styled("Refs    ", accent_style(app))];
         for (i, l) in labels.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::raw(", "));
             }
-            spans.push(Span::styled(
-                l.clone(),
-                Style::default().fg(Color::Green),
-            ));
+            spans.push(Span::styled(l.clone(), ref_style(app)));
         }
         Line::from(spans)
     };
@@ -155,10 +160,32 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
 
     let subject_line = Line::from(vec![Span::styled(
         format!("    {}", commit.subject),
-        Style::default().add_modifier(Modifier::BOLD),
+        strong_style(app),
     )]);
 
-    let text = vec![hash_line, author_line, date_line, refs_line, blank, subject_line];
+    let body_header = Line::from(vec![Span::styled("Body    ", accent_style(app))]);
+    let body_preview = if commit.body.trim().is_empty() {
+        vec![Line::from("    (no body)")]
+    } else {
+        commit
+            .body
+            .lines()
+            .take(3)
+            .map(|line| Line::from(format!("    {}", line)))
+            .collect()
+    };
+
+    let mut text = vec![
+        hash_line,
+        author_line,
+        date_line,
+        parents_line,
+        refs_line,
+        blank,
+        subject_line,
+        body_header,
+    ];
+    text.extend(body_preview);
     let p = Paragraph::new(text).block(block);
     frame.render_widget(p, area);
 }
@@ -166,20 +193,29 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
 /// Render the filter input bar.
 pub fn render_filter_bar(frame: &mut Frame, app: &App, area: Rect) {
     let text = if app.filter.is_empty() {
-        "Search: (type to filter by commit message)".to_string()
+        "Search: (subject, body, author, hash, email, refs)".to_string()
     } else {
         format!("Search: {}_", app.filter)
     };
 
-    let style = Style::default().fg(Color::Black).bg(Color::Yellow);
+    let style = if app.colors_enabled {
+        Style::default().fg(Color::Black).bg(Color::Yellow)
+    } else {
+        Style::default().add_modifier(Modifier::REVERSED)
+    };
     let p = Paragraph::new(text).style(style);
     frame.render_widget(p, area);
 }
 
 /// Render a help line at the very bottom of the screen.
-pub fn render_help(frame: &mut Frame, area: Rect) {
-    let text = " j/k:move  Enter:toggle details  /:filter  Esc:clear  q:quit ";
-    let p = Paragraph::new(text).style(Style::default().fg(Color::DarkGray));
+pub fn render_help(frame: &mut Frame, app: &App, area: Rect) {
+    let text = " j/k:move  Enter:toggle details  /:filter  r:reload  Esc:clear  q:quit ";
+    let style = if app.colors_enabled {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+    let p = Paragraph::new(text).style(style);
     frame.render_widget(p, area);
 }
 
@@ -195,4 +231,52 @@ fn lane_to_color(lane: usize) -> Color {
         Color::LightRed,
     ];
     COLORS[lane % COLORS.len()]
+}
+
+fn title_style(app: &App) -> Style {
+    if app.colors_enabled {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn accent_style(app: &App) -> Style {
+    if app.colors_enabled {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn ref_style(app: &App) -> Style {
+    if app.colors_enabled {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn strong_style(app: &App) -> Style {
+    if app.colors_enabled {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn list_highlight_style(app: &App) -> Style {
+    if app.colors_enabled {
+        Style::default()
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .add_modifier(Modifier::REVERSED)
+            .add_modifier(Modifier::BOLD)
+    }
 }

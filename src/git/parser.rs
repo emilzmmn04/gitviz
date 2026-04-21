@@ -8,7 +8,7 @@ pub struct ParseCommitsReport {
     pub first_error: Option<String>,
 }
 
-/// Parse commits from `git log --format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1e` output.
+/// Parse commits from `git log --format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1e` output.
 /// Records are delimited by ASCII record separator (0x1e).
 /// Fields within each record are delimited by ASCII unit separator (0x1f).
 pub fn parse_commits(output: &str) -> ParseCommitsReport {
@@ -36,11 +36,11 @@ pub fn parse_commits(output: &str) -> ParseCommitsReport {
 }
 
 fn parse_commit_record(record: &str) -> Result<Commit, String> {
-    // splitn(6, ...) so that subject (field 6) is kept intact even if it
+    // splitn(7, ...) so that body (field 7) is kept intact even if it
     // somehow contained the separator (unlikely but safe).
-    let parts: Vec<&str> = record.splitn(6, '\x1f').collect();
-    if parts.len() < 6 {
-        return Err(format!("missing fields: expected 6, got {}", parts.len()));
+    let parts: Vec<&str> = record.splitn(7, '\x1f').collect();
+    if parts.len() < 7 {
+        return Err(format!("missing fields: expected 7, got {}", parts.len()));
     }
 
     let oid = parts[0].trim().to_string();
@@ -62,6 +62,7 @@ fn parse_commit_record(record: &str) -> Result<Commit, String> {
         .map_err(|_| format!("invalid timestamp '{}'", timestamp_raw))?;
     // subject may have trailing \n from git's tformat
     let subject = parts[5].trim_end_matches('\n').to_string();
+    let body = parts[6].trim_end_matches('\n').to_string();
 
     Ok(Commit {
         oid,
@@ -70,6 +71,7 @@ fn parse_commit_record(record: &str) -> Result<Commit, String> {
         author_email,
         timestamp,
         subject,
+        body,
     })
 }
 
@@ -131,7 +133,8 @@ mod tests {
                       John Doe\x1f\
                       john@example.com\x1f\
                       1700000000\x1f\
-                      Fix something important";
+                      Fix something important\x1f\
+                      Detailed body";
         let commit = parse_commit_record(record).expect("should parse");
         assert_eq!(commit.oid, "abc123def456abc123def456abc1");
         assert_eq!(commit.parents.len(), 2);
@@ -139,21 +142,23 @@ mod tests {
         assert_eq!(commit.author_email, "john@example.com");
         assert_eq!(commit.timestamp, 1700000000);
         assert_eq!(commit.subject, "Fix something important");
+        assert_eq!(commit.body, "Detailed body");
     }
 
     #[test]
     fn test_parse_commit_record_no_parents() {
-        let record = "abc123def456abc123def456abc1\x1f\x1fJane Doe\x1fjane@example.com\x1f1700000001\x1fInitial commit";
+        let record = "abc123def456abc123def456abc1\x1f\x1fJane Doe\x1fjane@example.com\x1f1700000001\x1fInitial commit\x1f";
         let commit = parse_commit_record(record).expect("should parse");
         assert_eq!(commit.oid, "abc123def456abc123def456abc1");
         assert!(commit.parents.is_empty());
         assert_eq!(commit.subject, "Initial commit");
+        assert!(commit.body.is_empty());
     }
 
     #[test]
     fn test_parse_commits_multiple() {
-        let record1 = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst";
-        let record2 = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1f999\x1fSecond";
+        let record1 = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst\x1fBody one";
+        let record2 = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1f999\x1fSecond\x1fBody two";
         let input = format!("{}\x1e{}\x1e", record1, record2);
         let report = parse_commits(&input);
         assert_eq!(report.total_records, 2);
@@ -163,11 +168,12 @@ mod tests {
         assert_eq!(report.commits[0].oid, "aaa");
         assert_eq!(report.commits[1].oid, "bbb");
         assert_eq!(report.commits[1].parents, vec!["aaa"]);
+        assert_eq!(report.commits[0].body, "Body one");
     }
 
     #[test]
     fn test_parse_commits_invalid_timestamp_is_rejected() {
-        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond";
+        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond\x1fBody";
         let report = parse_commits(&format!("{}\x1e", bad));
         assert_eq!(report.total_records, 1);
         assert_eq!(report.rejected_records, 1);
@@ -183,8 +189,8 @@ mod tests {
 
     #[test]
     fn test_parse_commits_mixed_valid_and_invalid() {
-        let good = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst";
-        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond";
+        let good = "aaa\x1f\x1fAuth1\x1fa@b.com\x1f1000\x1fFirst\x1fBody";
+        let bad = "bbb\x1faaa\x1fAuth2\x1fb@c.com\x1fnot-a-number\x1fSecond\x1fBody";
         let report = parse_commits(&format!("{}\x1e{}\x1e", good, bad));
         assert_eq!(report.total_records, 2);
         assert_eq!(report.rejected_records, 1);

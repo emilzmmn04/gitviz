@@ -7,7 +7,7 @@ use crate::app::App;
 use super::widgets;
 
 /// Height of the details panel (lines including border).
-const DETAILS_HEIGHT: u16 = 9;
+const DETAILS_HEIGHT: u16 = 14;
 /// Height of the filter bar.
 const FILTER_HEIGHT: u16 = 1;
 /// Height of the help bar.
@@ -43,5 +43,5 @@ pub fn render(frame: &mut Frame, app: &App) {
         widgets::render_filter_bar(frame, app, chunks[2]);
     }
 
-    widgets::render_help(frame, chunks[3]);
+    widgets::render_help(frame, app, chunks[3]);
 }

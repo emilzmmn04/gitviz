@@ -2,3 +2,4 @@
 /dist
 /packaging/npm/vendor
 /packaging/npm/.tmp
+/gitviz/

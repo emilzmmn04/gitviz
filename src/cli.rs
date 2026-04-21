@@ -17,15 +17,15 @@ pub struct Cli {
     #[arg(long, short = 'n', default_value_t = 200)]
     pub max: usize,
 
-    /// Exclude commits reachable from this revision (e.g. HEAD~500)
-    #[arg(long)]
-    pub since: Option<String>,
+    /// Exclude commits reachable from this revision boundary (e.g. HEAD~500)
+    #[arg(long = "exclude-reachable-from", alias = "since", value_name = "REV")]
+    pub exclude_reachable_from: Option<String>,
 
     /// Path to the git repository (default: current directory)
     #[arg(long)]
     pub repo: Option<String>,
 
-    /// Disable colors
+    /// Disable coloured styling and use monochrome rendering
     #[arg(long)]
     pub no_color: bool,
 }
