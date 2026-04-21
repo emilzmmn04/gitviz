@@ -3,7 +3,7 @@ pub mod model;
 pub mod parser;
 
 use anyhow::{bail, Context, Result};
-use model::{Commit, Refs};
+use model::{Commit, CommitInspectData, Refs};
 use std::path::Path;
 
 /// Load commits from the repository using a single `git log` call.
@@ -103,9 +103,103 @@ pub fn check_repo(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn load_commit_inspect_data(repo: &Path, oid: &str) -> Result<CommitInspectData> {
+    let files_output = commands::run_git(
+        repo,
+        &["show", "--format=", "--name-status", "--find-renames", "--find-copies", oid],
+    )
+    .with_context(|| format!("Failed to load changed files for commit {}", oid))?;
+    let mut changed_files = parser::parse_changed_files(&files_output);
+    let mut file_list_truncated = false;
+    if changed_files.len() > 1000 {
+        changed_files.truncate(1000);
+        file_list_truncated = true;
+    }
+
+    let diff_output = commands::run_git(
+        repo,
+        &[
+            "show",
+            "--format=medium",
+            "--find-renames",
+            "--find-copies",
+            "--patch",
+            oid,
+        ],
+    )
+    .with_context(|| format!("Failed to load diff for commit {}", oid))?;
+
+    let (mut diff_text, diff_truncated) = truncate_diff_preview(&diff_output, 400);
+    if diff_text.trim().is_empty() {
+        diff_text = "(no patch content)".to_string();
+    }
+
+    Ok(CommitInspectData {
+        changed_files,
+        file_list_truncated,
+        diff_text,
+        diff_truncated,
+    }
+    )
+}
+
+pub fn github_commit_url(repo: &Path, oid: &str) -> Option<String> {
+    let remote_url = commands::try_run_git(repo, &["config", "--get", "remote.origin.url"])?;
+    let (owner, repo_name) = parse_github_remote_url(remote_url.trim())?;
+    Some(format!(
+        "https://github.com/{owner}/{repo_name}/commit/{oid}"
+    ))
+}
+
+fn truncate_diff_preview(diff_output: &str, max_lines: usize) -> (String, bool) {
+    let mut lines: Vec<&str> = diff_output.lines().collect();
+    let truncated = lines.len() > max_lines;
+    if truncated {
+        lines.truncate(max_lines);
+    }
+
+    let mut text = lines.join("\n");
+    if truncated {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str("... diff truncated; open in GitHub or use git show for the full patch");
+    }
+
+    (text, truncated)
+}
+
+fn parse_github_remote_url(remote: &str) -> Option<(String, String)> {
+    let remote = remote.trim();
+
+    let stripped = if let Some(rest) = remote.strip_prefix("git@github.com:") {
+        rest
+    } else if let Some(rest) = remote.strip_prefix("ssh://git@github.com/") {
+        rest
+    } else if let Some(rest) = remote.strip_prefix("https://github.com/") {
+        rest
+    } else {
+        return None;
+    };
+
+    let stripped = stripped.strip_suffix(".git").unwrap_or(stripped);
+    let mut parts = stripped.split('/');
+    let owner = parts.next()?.trim();
+    let repo_name = parts.next()?.trim();
+    if owner.is_empty() || repo_name.is_empty() || parts.next().is_some() {
+        return None;
+    }
+
+    Some((owner.to_string(), repo_name.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{load_commits, load_refs, parse_git_log_output};
+    use super::{
+        github_commit_url, load_commit_inspect_data, load_commits, load_refs,
+        parse_git_log_output, parse_github_remote_url, truncate_diff_preview,
+    };
+    use crate::git::model::ChangeKind;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -140,6 +234,19 @@ mod tests {
             fs::write(self.path.join(name), contents).expect("failed to write test file");
             run_git(self.path(), &["add", name]);
             run_git(self.path(), &["commit", "-m", message]);
+            run_git(self.path(), &["rev-parse", "HEAD"]).trim().to_string()
+        }
+
+        fn commit_file_with_body(
+            &self,
+            name: &str,
+            contents: &str,
+            subject: &str,
+            body: &str,
+        ) -> String {
+            fs::write(self.path.join(name), contents).expect("failed to write test file");
+            run_git(self.path(), &["add", name]);
+            run_git(self.path(), &["commit", "-m", subject, "-m", body]);
             run_git(self.path(), &["rev-parse", "HEAD"]).trim().to_string()
         }
     }
@@ -220,5 +327,54 @@ mod tests {
 
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].oid, second);
+    }
+
+    #[test]
+    fn test_load_commit_inspect_data_reads_files_and_diff() {
+        let repo = TempRepo::new();
+        let oid = repo.commit_file_with_body("app.txt", "one\n", "subject", "body");
+        let data = load_commit_inspect_data(repo.path(), &oid).expect("inspect data should load");
+        assert_eq!(data.changed_files.len(), 1);
+        assert_eq!(data.changed_files[0].change_kind, ChangeKind::Added);
+        assert!(data.diff_text.contains("subject"));
+        assert!(!data.diff_truncated);
+        assert!(!data.file_list_truncated);
+    }
+
+    #[test]
+    fn test_parse_github_remote_url_variants() {
+        let ssh = parse_github_remote_url("git@github.com:owner/repo.git");
+        let ssh_scheme = parse_github_remote_url("ssh://git@github.com/owner/repo.git");
+        let https = parse_github_remote_url("https://github.com/owner/repo.git");
+        let https_plain = parse_github_remote_url("https://github.com/owner/repo");
+        assert_eq!(ssh, Some(("owner".to_string(), "repo".to_string())));
+        assert_eq!(ssh_scheme, Some(("owner".to_string(), "repo".to_string())));
+        assert_eq!(https, Some(("owner".to_string(), "repo".to_string())));
+        assert_eq!(https_plain, Some(("owner".to_string(), "repo".to_string())));
+        assert!(parse_github_remote_url("git@gitlab.com:owner/repo.git").is_none());
+    }
+
+    #[test]
+    fn test_truncate_diff_preview_limits_lines() {
+        let diff = (0..450)
+            .map(|i| format!("line-{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (text, truncated) = truncate_diff_preview(&diff, 400);
+        assert!(truncated);
+        assert!(text.contains("line-399"));
+        assert!(text.contains("... diff truncated; open in GitHub or use git show for the full patch"));
+    }
+
+    #[test]
+    fn test_github_commit_url_uses_origin_remote() {
+        let repo = TempRepo::new();
+        let oid = repo.commit_file("README.md", "hello\n", "initial commit");
+        run_git(
+            repo.path(),
+            &["remote", "add", "origin", "https://github.com/owner/repo.git"],
+        );
+        let url = github_commit_url(repo.path(), &oid).expect("github url should resolve");
+        assert_eq!(url, format!("https://github.com/owner/repo/commit/{oid}"));
     }
 }

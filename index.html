@@ -214,6 +214,15 @@
       color: var(--teal);
     }
     .ddet-head::after { content:''; flex:1; height:1px; background:var(--rule); margin-left:6px; }
+    .ddet-tabs {
+      display: flex;
+      gap: 10px;
+      padding: 2px 10px 5px;
+      font-size: 11px;
+      color: var(--dim);
+      border-bottom: 1px solid var(--rule);
+    }
+    .ddet-tab.on { color: var(--teal); }
 
     .dr {
       display: grid;
@@ -228,6 +237,7 @@
     .dv.mut  { color: var(--muted); }
     .dv.blue { color: var(--blue); }
     .dmsg { padding: 6px 10px 9px; font-size: 12px; font-weight: 700; color: var(--text); }
+    .dbody { padding: 0 10px 10px; font-size: 12px; color: var(--dim); line-height: 1.55; }
 
     .demo-keys {
       border-top: 1px solid var(--rule);
@@ -475,7 +485,12 @@
       </div>
 
       <div class="ddet">
-        <div class="ddet-head">Details</div>
+        <div class="ddet-head">Details: Summary</div>
+        <div class="ddet-tabs">
+          <span class="ddet-tab on">[Summary]</span>
+          <span class="ddet-tab">[Files]</span>
+          <span class="ddet-tab">[Diff]</span>
+        </div>
         <div class="dr">
           <span class="dl">Commit</span>
           <span class="dv mut" id="d-hash">a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0</span>
@@ -489,16 +504,27 @@
           <span class="dv"      id="d-date">2026-02-24  (just now)</span>
         </div>
         <div class="dr">
+          <span class="dl">Parents</span>
+          <span class="dv mut"  id="d-parents">e4f5a6b, 7c8d9e0</span>
+        </div>
+        <div class="dr">
           <span class="dl">Refs</span>
           <span class="dv blue" id="d-refs">HEAD → main</span>
         </div>
-        <div class="dmsg" id="d-msg">Merge branch 'feature/auth'</div>
+        <div class="dr">
+          <span class="dl">Subject</span>
+          <span class="dv"      id="d-msg">Merge branch 'feature/auth'</span>
+        </div>
+        <div class="dbody" id="d-body">Summary tab shows the selected commit body preview. Files and Diff load on demand in the real TUI.</div>
       </div>
 
       <div class="demo-keys">
         <span>j/k:move</span>
-        <span>Enter:toggle details</span>
-        <span>/:filter</span>
+        <span>Tab:tabs</span>
+        <span>/:search</span>
+        <span>y:copy hash</span>
+        <span>o:open GitHub</span>
+        <span>?:help</span>
         <span>q:quit</span>
       </div>
     </div>
@@ -511,8 +537,8 @@
   <div class="features">
     <div class="feat s1">
       <span class="fd">●</span>
-      <div><span class="fn">Lane-based commit graph</span>
-           <span class="fx">Parallel branches as colour-coded columns with graph characters</span></div>
+      <div><span class="fn">Compact commit graph</span>
+           <span class="fx">Lane-aware history with inline merge connectors and ref labels</span></div>
     </div>
     <div class="feat s2">
       <span class="fd">●</span>
@@ -521,23 +547,23 @@
     </div>
     <div class="feat s3">
       <span class="fd">●</span>
-      <div><span class="fn">Commit details panel</span>
-           <span class="fx">Full hash, author, date, and message on selection</span></div>
+      <div><span class="fn">Tabbed commit inspector</span>
+           <span class="fx">Summary, Files, and Diff views with parents, refs, and body preview</span></div>
     </div>
     <div class="feat s4">
       <span class="fd">●</span>
-      <div><span class="fn">Live fuzzy search</span>
-           <span class="fx">Filter commits by message substring in real-time with /</span></div>
+      <div><span class="fn">Multi-field search</span>
+           <span class="fx">Filter by subject, body, author, hash, email, or refs and jump results with n / N</span></div>
     </div>
     <div class="feat s5">
       <span class="fd">●</span>
       <div><span class="fn">Vim-style navigation</span>
-           <span class="fx">j/k, g/G, arrow keys — full keyboard control, no mouse</span></div>
+           <span class="fx">j/k, g/G, arrows, paging, and tab switching with full keyboard control</span></div>
     </div>
     <div class="feat s6">
       <span class="fd">●</span>
-      <div><span class="fn">Zero overhead</span>
-           <span class="fx">Single git log call, no libgit2, instant startup</span></div>
+      <div><span class="fn">Lazy detail loading</span>
+           <span class="fx">Fast startup from summary history, with Files and Diff loaded only when needed</span></div>
     </div>
     <div class="feat s7">
       <span class="fd">●</span>
@@ -546,8 +572,8 @@
     </div>
     <div class="feat s8">
       <span class="fd">●</span>
-      <div><span class="fn">Built in Rust</span>
-           <span class="fx">Fast single binary, no runtime, no interpreter</span></div>
+      <div><span class="fn">GitHub-aware actions</span>
+           <span class="fx">Copy the selected hash or open the commit on GitHub for supported origin remotes</span></div>
     </div>
   </div>
 
@@ -619,7 +645,7 @@ cargo install --path .">copy</button>
         <div><span class="p">$ </span><span class="c">gitviz --max 50</span><span class="cc"># limit to 50 commits</span></div>
         <div><span class="p">$ </span><span class="c">gitviz --repo ~/projects/myapp</span><span class="cc"># different repo</span></div>
         <div><span class="p">$ </span><span class="c">gitviz --all false</span><span class="cc"># HEAD branch only</span></div>
-        <div><span class="p">$ </span><span class="c">gitviz --since HEAD~500</span><span class="cc"># exclude older history</span></div>
+        <div><span class="p">$ </span><span class="c">gitviz --exclude-reachable-from HEAD~500</span><span class="cc"># exclude history behind a revision boundary</span></div>
       </div>
     </div>
   </div>
@@ -646,7 +672,10 @@ cargo install --path .">copy</button>
 <div class="footer">
   <span>j/k:navigate demo</span>
   <span>Tab:switch install</span>
-  <span>Enter:toggle details</span>
+  <span>/:search</span>
+  <span>y:copy</span>
+  <span>o:open</span>
+  <span>?:help</span>
   <span>MIT License</span>
   <a href="https://github.com/emilzmmn04/gitviz" target="_blank" rel="noopener">github ↗</a>
 </div>
@@ -654,12 +683,12 @@ cargo install --path .">copy</button>
 <script>
 // ── Demo commit data — fully fictional, no private info ───────────────────────
 const commits = [
-  { hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', author: 'Alice Developer', date: '2026-02-24  (just now)',    refs: 'HEAD → main',   msg: "Merge branch 'feature/auth'" },
-  { hash: 'e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3', author: 'Alice Developer', date: '2026-02-24  (2 hours ago)', refs: 'origin/main',   msg: 'Update CI pipeline' },
-  { hash: '7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d', author: 'Bob Contributor', date: '2026-02-23  (1 day ago)',   refs: '',              msg: 'Add JWT authentication' },
-  { hash: 'f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0', author: 'Bob Contributor', date: '2026-02-23  (2 days ago)', refs: '',              msg: 'Implement login endpoint' },
-  { hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3', author: 'Alice Developer', date: '2026-02-20  (4 days ago)', refs: 'tag: v1.0.0',   msg: 'Initial stable release' },
-  { hash: '0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f', author: 'Alice Developer', date: '2026-02-15  (9 days ago)', refs: '',              msg: 'Initial commit' },
+  { hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', author: 'Alice Developer', date: '2026-02-24  (just now)',    refs: 'HEAD → main',   parents: 'e4f5a6b, 7c8d9e0', msg: "Merge branch 'feature/auth'", body: 'Summary, Files, and Diff are available from the lower panel. The real app loads commit inspection data on demand.' },
+  { hash: 'e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3', author: 'Alice Developer', date: '2026-02-24  (2 hours ago)', refs: 'origin/main',   parents: 'f1a2b3c',           msg: 'Update CI pipeline', body: 'Release validation now covers tests, packaging smoke, and dry-run artifact generation.' },
+  { hash: '7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d', author: 'Bob Contributor', date: '2026-02-23  (1 day ago)',   refs: '',              parents: 'f1a2b3c',           msg: 'Add JWT authentication', body: 'Search works across subject, body, author, hash, email, and refs with wraparound next/previous navigation.' },
+  { hash: 'f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0', author: 'Bob Contributor', date: '2026-02-23  (2 days ago)', refs: '',              parents: 'd4e5f6a',           msg: 'Implement login endpoint', body: 'Compact merge connectors keep the graph readable without adding spacer rows.' },
+  { hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3', author: 'Alice Developer', date: '2026-02-20  (4 days ago)', refs: 'tag: v1.0.0',   parents: '0e1f2a3',           msg: 'Initial stable release', body: 'Releases publish Cargo, npm, Homebrew, and Debian install paths from a single repository.' },
+  { hash: '0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f', author: 'Alice Developer', date: '2026-02-15  (9 days ago)', refs: '',              parents: '—',                 msg: 'Initial commit', body: 'The TUI is optimized for fast keyboard-driven history inspection on macOS and Linux.' },
 ];
 
 // Only rows with data-idx are interactive
@@ -676,8 +705,10 @@ function updateDemo(idx) {
   document.getElementById('d-hash').textContent   = c.hash;
   document.getElementById('d-author').textContent = c.author;
   document.getElementById('d-date').textContent   = c.date;
+  document.getElementById('d-parents').textContent = c.parents;
   document.getElementById('d-refs').textContent   = c.refs || '—';
   document.getElementById('d-msg').textContent    = c.msg;
+  document.getElementById('d-body').textContent   = c.body;
   sel = idx;
 }
 

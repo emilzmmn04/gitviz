@@ -1,34 +1,28 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     Frame,
 };
 
 use crate::app::App;
+
 use super::widgets;
 
-/// Height of the details panel (lines including border).
-const DETAILS_HEIGHT: u16 = 14;
-/// Height of the filter bar.
+const DETAILS_HEIGHT: u16 = 16;
 const FILTER_HEIGHT: u16 = 1;
-/// Height of the help bar.
 const HELP_HEIGHT: u16 = 1;
 
-/// Top-level render function called each frame.
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     use crate::app::Mode;
 
     let area = frame.area();
-
-    // Decide layout heights
     let filter_h = if app.mode == Mode::Filter { FILTER_HEIGHT } else { 0 };
     let details_h = if app.details_expanded { DETAILS_HEIGHT } else { 3 };
 
-    // Build vertical layout
     let constraints = vec![
-        Constraint::Min(3),              // graph list (greedy)
-        Constraint::Length(details_h),   // details panel
-        Constraint::Length(filter_h),    // filter bar (may be 0)
-        Constraint::Length(HELP_HEIGHT), // help line
+        Constraint::Min(3),
+        Constraint::Length(details_h),
+        Constraint::Length(filter_h),
+        Constraint::Length(HELP_HEIGHT),
     ];
 
     let chunks = Layout::default()
@@ -44,4 +38,28 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
 
     widgets::render_help(frame, app, chunks[3]);
+
+    if app.help_open {
+        widgets::render_help_overlay(frame, app, centered_rect(72, 80, area));
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

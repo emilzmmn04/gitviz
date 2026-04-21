@@ -1,0 +1,80 @@
+name: Package Smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate-metadata:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Homebrew template placeholders
+        run: |
+          rg --fixed-strings "__VERSION__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__MACOS_ARM64_URL__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__MACOS_ARM64_SHA__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__MACOS_X64_URL__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__MACOS_X64_SHA__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__LINUX_ARM64_URL__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__LINUX_ARM64_SHA__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__LINUX_X64_URL__" packaging/homebrew/gitviz.rb
+          rg --fixed-strings "__LINUX_X64_SHA__" packaging/homebrew/gitviz.rb
+
+      - name: Validate version consistency
+        run: |
+          cargo_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          npm_version="$(node -p "require('./packaging/npm/package.json').version")"
+          test "$cargo_version" = "$npm_version"
+
+  smoke-ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test built binary
+        run: ./target/release/gitviz --help
+
+      - name: Install npm dependencies
+        run: |
+          cd packaging/npm
+          GITVIZ_SKIP_POSTINSTALL=1 npm install
+
+      - name: Smoke test npm wrapper with local binary
+        run: |
+          mkdir -p packaging/npm/vendor
+          cp target/release/gitviz packaging/npm/vendor/gitviz
+          node packaging/npm/bin/gitviz.js --help
+          cd packaging/npm
+          npm pack
+
+  smoke-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test built binary
+        run: ./target/release/gitviz --help

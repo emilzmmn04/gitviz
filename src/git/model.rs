@@ -9,6 +9,40 @@ pub struct Commit {
     pub body: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    TypeChanged,
+    Unmerged,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedFile {
+    pub path: String,
+    pub change_kind: ChangeKind,
+    pub old_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitInspectData {
+    pub changed_files: Vec<ChangedFile>,
+    pub file_list_truncated: bool,
+    pub diff_text: String,
+    pub diff_truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum InspectCacheEntry {
+    Loading,
+    Ready(CommitInspectData),
+    Error(String),
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Refs {
     pub head_oid: String,

@@ -1,0 +1,146 @@
+name: Release Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without leading v"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            needs_linux_arm_linker: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            needs_linux_arm_linker: true
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            needs_linux_arm_linker: false
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            needs_linux_arm_linker: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux ARM64 linker
+        if: matrix.needs_linux_arm_linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Package archive and checksum
+        run: |
+          ./.github/scripts/create_release_artifacts.sh \
+            "${{ inputs.version }}" \
+            "${{ matrix.target }}" \
+            "target/${{ matrix.target }}/release/gitviz"
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-deb:
+    runs-on: ubuntu-24.04
+    needs: build-binaries
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dry-run-x86_64-unknown-linux-gnu
+          path: dist
+
+      - name: Build .deb package
+        run: ./.github/scripts/build_deb.sh "${{ inputs.version }}" "dist/gitviz-v${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-deb
+          path: dist/gitviz_*.deb*
+          if-no-files-found: error
+
+  npm-pack:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: |
+          cd packaging/npm
+          GITVIZ_SKIP_POSTINSTALL=1 npm install
+
+      - name: Build npm tarball
+        run: |
+          cd packaging/npm
+          npm version "${{ inputs.version }}" --no-git-tag-version
+          npm pack --pack-destination ../dist
+
+      - name: Upload npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-npm
+          path: packaging/dist/*.tgz
+          if-no-files-found: error
+
+  render-homebrew:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-binaries
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dry-run-*
+          merge-multiple: true
+          path: dist
+
+      - name: Render Homebrew formula
+        run: |
+          chmod +x .github/scripts/render_homebrew_formula.sh
+          ./.github/scripts/render_homebrew_formula.sh "${{ inputs.version }}" dist/gitviz.rb
+
+      - name: Upload formula artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-homebrew
+          path: dist/gitviz.rb
+          if-no-files-found: error

@@ -1,95 +1,107 @@
 use crate::git::model::Commit;
 
-/// Per-commit layout information produced by the lane algorithm.
-#[derive(Debug, Clone)]
-pub struct GraphNode {
-    /// Which lane (column) this commit sits on.
-    pub lane: usize,
-    /// True when this commit has more than one parent (merge commit).
-    pub is_merge: bool,
-    /// Total number of active lanes for this row (determines column count).
-    pub total_lanes: usize,
-    /// Which lanes are "active" (have a queued OID) when this row is rendered.
-    /// Index corresponds to lane index.
-    pub active: Vec<bool>,
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphCell {
+    Empty,
+    Vertical,
+    Horizontal,
+    Commit,
+    MergeCommit,
+    CornerUpLeft,
+    CornerUpRight,
+    CornerDownLeft,
+    CornerDownRight,
 }
 
-/// Compute lane-based graph layout for a topo-ordered list of commits.
-///
-/// Algorithm (simplified git-log-graph style):
-/// - Maintain `lanes: Vec<Option<String>>` where each slot holds the OID
-///   we are "expecting" to appear in that lane next.
-/// - For each commit:
-///   1. Find the lane that holds `commit.oid`, or allocate a new one.
-///   2. Record which lanes are currently active (for rendering vertical bars).
-///   3. Update: set the commit's lane to its first parent.
-///   4. For each additional parent (merge), find or allocate a lane.
-///   5. Trim trailing empty lanes.
-pub fn compute_layout(commits: &[Commit]) -> Vec<GraphNode> {
-    // lanes[i] = Some(oid) means lane i is "expecting" commit with that oid
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphRow {
+    pub commit_lane: usize,
+    pub cells: Vec<GraphCell>,
+}
+
+pub fn compute_layout(commits: &[Commit]) -> Vec<GraphRow> {
     let mut lanes: Vec<Option<String>> = Vec::new();
     let mut result = Vec::with_capacity(commits.len());
 
     for commit in commits {
-        // --- Step 1: find or allocate this commit's lane ---
         let commit_lane = lanes
             .iter()
-            .position(|l| l.as_deref() == Some(commit.oid.as_str()))
+            .position(|lane| lane.as_deref() == Some(commit.oid.as_str()))
             .unwrap_or_else(|| allocate_lane(&mut lanes));
 
-        // Ensure lanes vector is long enough
         if commit_lane >= lanes.len() {
             lanes.resize(commit_lane + 1, None);
         }
 
-        // --- Step 2: snapshot active lanes BEFORE mutation ---
-        let total = lanes.len();
-        let active: Vec<bool> = (0..total)
-            .map(|i| {
-                if i == commit_lane {
-                    true // commit node itself is "active" in this position
-                } else {
-                    lanes[i].is_some()
-                }
-            })
-            .collect();
+        let active_before = snapshot_active(&lanes, commit_lane);
 
-        let is_merge = commit.parents.len() > 1;
-
-        // --- Step 3: update commit's lane to its first parent ---
         lanes[commit_lane] = commit.parents.first().cloned();
 
-        // --- Step 4: handle additional parents (merge) ---
+        let mut extra_parent_lanes = Vec::new();
         for parent_oid in commit.parents.iter().skip(1) {
-            // Only allocate a lane if this parent isn't already tracked
-            if !lanes
+            let lane = lanes
                 .iter()
-                .any(|l| l.as_deref() == Some(parent_oid.as_str()))
-            {
-                let new_lane = allocate_lane(&mut lanes);
-                lanes[new_lane] = Some(parent_oid.clone());
+                .position(|tracked| tracked.as_deref() == Some(parent_oid.as_str()))
+                .unwrap_or_else(|| {
+                    let lane = allocate_lane(&mut lanes);
+                    lanes[lane] = Some(parent_oid.clone());
+                    lane
+                });
+            extra_parent_lanes.push(lane);
+        }
+
+        let cols = lanes.len().max(commit_lane + 1);
+        let mut cells = vec![GraphCell::Empty; cols];
+        for (lane, is_active) in active_before.iter().copied().enumerate() {
+            if is_active {
+                cells[lane] = GraphCell::Vertical;
             }
         }
 
-        // --- Step 5: trim trailing None lanes ---
+        cells[commit_lane] = if commit.parents.len() > 1 {
+            GraphCell::MergeCommit
+        } else {
+            GraphCell::Commit
+        };
+
+        for parent_lane in extra_parent_lanes {
+            if parent_lane > commit_lane {
+                for lane in (commit_lane + 1)..parent_lane {
+                    cells[lane] = GraphCell::Horizontal;
+                }
+                cells[parent_lane] = GraphCell::CornerDownLeft;
+            } else if parent_lane < commit_lane {
+                for lane in (parent_lane + 1)..commit_lane {
+                    cells[lane] = GraphCell::Horizontal;
+                }
+                cells[parent_lane] = GraphCell::CornerDownRight;
+            }
+        }
+
+        while matches!(cells.last(), Some(GraphCell::Empty)) {
+            cells.pop();
+        }
         while lanes.last() == Some(&None) {
             lanes.pop();
         }
 
-        result.push(GraphNode {
-            lane: commit_lane,
-            is_merge,
-            total_lanes: total,
-            active,
-        });
+        result.push(GraphRow { commit_lane, cells });
     }
 
     result
 }
 
-/// Find the first unused (None) slot in `lanes`, or push a new slot.
+fn snapshot_active(lanes: &[Option<String>], commit_lane: usize) -> Vec<bool> {
+    let mut active = Vec::with_capacity(lanes.len());
+    for (i, lane) in lanes.iter().enumerate() {
+        active.push(i == commit_lane || lane.is_some());
+    }
+    active
+}
+
 fn allocate_lane(lanes: &mut Vec<Option<String>>) -> usize {
-    if let Some(pos) = lanes.iter().position(|l| l.is_none()) {
+    if let Some(pos) = lanes.iter().position(|lane| lane.is_none()) {
         pos
     } else {
         lanes.push(None);
@@ -114,29 +126,32 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_history() {
+    fn test_linear_history_stays_on_lane_zero() {
         let commits = vec![
             make_commit("c", &["b"]),
             make_commit("b", &["a"]),
             make_commit("a", &[]),
         ];
-        let nodes = compute_layout(&commits);
-        // All commits should be on lane 0 for linear history
-        assert!(nodes.iter().all(|n| n.lane == 0));
-        assert!(nodes.iter().all(|n| !n.is_merge));
+        let rows = compute_layout(&commits);
+        assert!(rows.iter().all(|row| row.commit_lane == 0));
+        assert_eq!(rows[0].cells, vec![GraphCell::Commit]);
     }
 
     #[test]
-    fn test_merge_commit() {
-        // merge: M has parents A and B; B was on a side branch
+    fn test_merge_adds_right_connector() {
         let commits = vec![
             make_commit("M", &["A", "B"]),
             make_commit("A", &["root"]),
             make_commit("B", &["root"]),
             make_commit("root", &[]),
         ];
-        let nodes = compute_layout(&commits);
-        assert!(nodes[0].is_merge); // M is a merge commit
-        assert!(!nodes[1].is_merge);
+        let rows = compute_layout(&commits);
+        assert_eq!(
+            rows[0].cells,
+            vec![
+                GraphCell::MergeCommit,
+                GraphCell::CornerDownLeft,
+            ]
+        );
     }
 }

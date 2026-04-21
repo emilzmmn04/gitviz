@@ -17,6 +17,9 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
   },
+  "dependencies": {
+    "tar": "^7.4.3"
+  },
   "files": [
     "bin",
     "scripts",

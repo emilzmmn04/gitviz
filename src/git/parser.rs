@@ -1,4 +1,4 @@
-use super::model::Commit;
+use super::model::{ChangeKind, ChangedFile, Commit};
 
 #[derive(Debug, Default)]
 pub struct ParseCommitsReport {
@@ -94,6 +94,54 @@ pub fn parse_show_ref(output: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Parse `git show --name-status` output into changed-file records.
+pub fn parse_changed_files(output: &str) -> Vec<ChangedFile> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+
+            let mut parts = line.split('\t');
+            let status = parts.next()?.trim();
+            let first_path = parts.next()?.trim().to_string();
+            let second_path = parts.next().map(|path| path.trim().to_string());
+
+            let (change_kind, path, old_path) = if status.starts_with('R') {
+                (
+                    ChangeKind::Renamed,
+                    second_path.unwrap_or_else(|| first_path.clone()),
+                    Some(first_path),
+                )
+            } else if status.starts_with('C') {
+                (
+                    ChangeKind::Copied,
+                    second_path.unwrap_or_else(|| first_path.clone()),
+                    Some(first_path),
+                )
+            } else {
+                let kind = match status {
+                    "A" => ChangeKind::Added,
+                    "M" => ChangeKind::Modified,
+                    "D" => ChangeKind::Deleted,
+                    "T" => ChangeKind::TypeChanged,
+                    "U" => ChangeKind::Unmerged,
+                    _ => ChangeKind::Unknown(status.to_string()),
+                };
+                (kind, first_path, None)
+            };
+
+            Some(ChangedFile {
+                path,
+                change_kind,
+                old_path,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +172,28 @@ mod tests {
     fn test_parse_show_ref_empty() {
         let result = parse_show_ref("");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_changed_files_basic() {
+        let input = "A\tnew.txt\nM\tmodified.txt\nD\tgone.txt\n";
+        let result = parse_changed_files(input);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].change_kind, ChangeKind::Added);
+        assert_eq!(result[0].path, "new.txt");
+        assert_eq!(result[1].change_kind, ChangeKind::Modified);
+        assert_eq!(result[2].change_kind, ChangeKind::Deleted);
+    }
+
+    #[test]
+    fn test_parse_changed_files_rename_and_copy() {
+        let input = "R100\told.txt\tnew.txt\nC100\tsrc.txt\tcopy.txt\n";
+        let result = parse_changed_files(input);
+        assert_eq!(result[0].change_kind, ChangeKind::Renamed);
+        assert_eq!(result[0].path, "new.txt");
+        assert_eq!(result[0].old_path.as_deref(), Some("old.txt"));
+        assert_eq!(result[1].change_kind, ChangeKind::Copied);
+        assert_eq!(result[1].old_path.as_deref(), Some("src.txt"));
     }
 
     #[test]

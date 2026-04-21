@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const tar = require("tar");
 
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const VENDOR_DIR = path.join(PACKAGE_ROOT, "vendor");
@@ -101,30 +101,36 @@ async function main() {
 
   const archivePath = path.join(TMP_DIR, archiveName);
 
-  const archive = await request(archiveUrl);
-  fs.writeFileSync(archivePath, archive);
+  try {
+    const archive = await request(archiveUrl);
+    fs.writeFileSync(archivePath, archive);
 
-  const checksumContents = (await request(checksumUrl)).toString("utf8");
-  const expectedHash = parseChecksumLine(checksumContents);
-  const actualHash = sha256(archivePath);
+    const checksumContents = (await request(checksumUrl)).toString("utf8");
+    const expectedHash = parseChecksumLine(checksumContents);
+    const actualHash = sha256(archivePath);
 
-  if (actualHash !== expectedHash) {
-    throw new Error(`Checksum mismatch for ${archiveName}`);
+    if (actualHash !== expectedHash) {
+      throw new Error(`Checksum mismatch for ${archiveName}`);
+    }
+
+    await tar.x({
+      file: archivePath,
+      cwd: VENDOR_DIR
+    });
+
+    if (!fs.existsSync(BINARY_PATH)) {
+      throw new Error("Downloaded archive did not contain gitviz binary");
+    }
+
+    fs.chmodSync(BINARY_PATH, 0o755);
+  } finally {
+    fs.rmSync(TMP_DIR, { recursive: true, force: true });
   }
-
-  execFileSync("tar", ["-xzf", archivePath, "-C", VENDOR_DIR], { stdio: "inherit" });
-
-  if (!fs.existsSync(BINARY_PATH)) {
-    throw new Error("Downloaded archive did not contain gitviz binary");
-  }
-
-  fs.chmodSync(BINARY_PATH, 0o755);
-  fs.rmSync(TMP_DIR, { recursive: true, force: true });
 
   process.stdout.write(`Installed gitviz ${version} for ${platformKey}.\n`);
 }
 
 main().catch((error) => {
-  console.error(`gitviz postinstall failed: ${error.message}`);
+  console.error(`gitviz postinstall failed: unable to download or unpack the prebuilt binary (${error.message})`);
   process.exit(1);
 });

@@ -2,35 +2,30 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
-use crate::app::App;
-use crate::git::model::Refs;
-use crate::graph::{graph_prefix, GraphNode};
+use crate::app::{App, DetailsTab};
+use crate::git::model::{ChangeKind, Commit, CommitInspectData, Refs};
+use crate::graph::{graph_prefix, GraphRow};
 use crate::util::{format_iso, format_relative, short_hash};
 
-/// Render the scrollable commit graph list.
 pub fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .filtered
         .iter()
         .map(|&commit_idx| {
             let commit = &app.commits[commit_idx];
-            let node = &app.graph[commit_idx];
-            graph_list_item(app, commit, node, &app.refs)
+            let row = &app.graph[commit_idx];
+            graph_list_item(app, commit, row, &app.refs)
         })
         .collect();
 
     let title = if app.filtered.len() == app.commits.len() {
         format!(" Commits ({}) ", app.commits.len())
     } else {
-        format!(
-            " Commits ({}/{}) ",
-            app.filtered.len(),
-            app.commits.len()
-        )
+        format!(" Commits ({}/{}) ", app.filtered.len(), app.commits.len())
     };
 
     let list = List::new(items)
@@ -53,144 +48,228 @@ pub fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
 
 fn graph_list_item<'a>(
     app: &'a App,
-    commit: &'a crate::git::model::Commit,
-    node: &'a GraphNode,
+    commit: &'a Commit,
+    row: &'a GraphRow,
     refs: &'a Refs,
 ) -> ListItem<'a> {
-    let prefix = graph_prefix(node);
+    let prefix = graph_prefix(row);
     let hash = short_hash(&commit.oid);
     let labels = refs.labels_for(&commit.oid);
 
     let mut spans: Vec<Span> = Vec::new();
-
-    // Graph prefix — colour by lane to give visual distinction
     let prefix_style = if app.colors_enabled {
-        Style::default().fg(lane_to_color(node.lane))
+        Style::default().fg(lane_to_color(row.commit_lane))
     } else {
         Style::default()
     };
+
     spans.push(Span::styled(prefix, prefix_style));
     spans.push(Span::raw(" "));
-
-    // Short hash
     spans.push(Span::styled(hash.to_string(), accent_style(app)));
     spans.push(Span::raw(" "));
 
-    // Ref labels
     for label in &labels {
-        spans.push(Span::styled(
-            format!("[{}]", label),
-            ref_style(app),
-        ));
+        spans.push(Span::styled(format!("[{}]", label), ref_style(app)));
         spans.push(Span::raw(" "));
     }
 
-    // Commit subject
     spans.push(Span::raw(commit.subject.clone()));
-
     ListItem::new(Line::from(spans))
 }
 
-/// Render the commit details panel at the bottom.
-pub fn render_details(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
+    let title = format!(" Details: {} ", app.active_tab.title());
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Details ")
+        .title(title)
         .title_style(title_style(app));
 
-    let Some(commit) = app.selected_commit() else {
-        let p = Paragraph::new("No commits to display.").block(block);
-        frame.render_widget(p, area);
-        return;
-    };
+    let inner_height = area.height.saturating_sub(2);
+    let (content, content_height) = details_lines(app);
+    let max_scroll = content_height.saturating_sub(inner_height);
+    app.clamp_details_scroll(max_scroll);
 
-    let hash_line = Line::from(vec![
-        Span::styled("Commit  ", accent_style(app)),
-        Span::styled(commit.oid.clone(), strong_style(app)),
-    ]);
-
-    let author_line = Line::from(vec![
-        Span::styled("Author  ", accent_style(app)),
-        Span::raw(format!("{} <{}>", commit.author, commit.author_email)),
-    ]);
-
-    let date_line = Line::from(vec![
-        Span::styled("Date    ", accent_style(app)),
-        Span::raw(format!(
-            "{}  ({})",
-            format_iso(commit.timestamp),
-            format_relative(commit.timestamp)
-        )),
-    ]);
-
-    let parents_line = if commit.parents.is_empty() {
-        Line::from(vec![
-            Span::styled("Parents ", accent_style(app)),
-            Span::raw("root commit"),
-        ])
-    } else {
-        let mut spans = vec![Span::styled("Parents ", accent_style(app))];
-        for (i, parent) in commit.parents.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::raw(", "));
-            }
-            spans.push(Span::raw(short_hash(parent).to_string()));
-        }
-        Line::from(spans)
-    };
-
-    let labels = app.refs.labels_for(&commit.oid);
-    let refs_line = if labels.is_empty() {
-        Line::from(vec![
-            Span::styled("Refs    ", accent_style(app)),
-            Span::raw("none"),
-        ])
-    } else {
-        let mut spans = vec![Span::styled("Refs    ", accent_style(app))];
-        for (i, l) in labels.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::raw(", "));
-            }
-            spans.push(Span::styled(l.clone(), ref_style(app)));
-        }
-        Line::from(spans)
-    };
-
-    let blank = Line::from("");
-
-    let subject_line = Line::from(vec![Span::styled(
-        format!("    {}", commit.subject),
-        strong_style(app),
-    )]);
-
-    let body_header = Line::from(vec![Span::styled("Body    ", accent_style(app))]);
-    let body_preview = if commit.body.trim().is_empty() {
-        vec![Line::from("    (no body)")]
-    } else {
-        commit
-            .body
-            .lines()
-            .take(3)
-            .map(|line| Line::from(format!("    {}", line)))
-            .collect()
-    };
-
-    let mut text = vec![
-        hash_line,
-        author_line,
-        date_line,
-        parents_line,
-        refs_line,
-        blank,
-        subject_line,
-        body_header,
-    ];
-    text.extend(body_preview);
-    let p = Paragraph::new(text).block(block);
-    frame.render_widget(p, area);
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .scroll((app.details_scroll, 0));
+    frame.render_widget(paragraph, area);
 }
 
-/// Render the filter input bar.
+fn details_lines(app: &App) -> (Vec<Line<'static>>, u16) {
+    let mut lines = vec![tab_line(app), Line::from("")];
+
+    let Some(commit) = app.selected_commit() else {
+        lines.push(Line::from("No commits to display."));
+        let len = lines.len() as u16;
+        return (lines, len);
+    };
+
+    match app.active_tab {
+        DetailsTab::Summary => {
+            lines.extend(summary_lines(app, commit));
+        }
+        DetailsTab::Files => {
+            lines.extend(files_lines(app));
+        }
+        DetailsTab::Diff => {
+            lines.extend(diff_lines(app));
+        }
+    }
+
+    let len = lines.len() as u16;
+    (lines, len)
+}
+
+fn tab_line(app: &App) -> Line<'static> {
+    let tabs = [DetailsTab::Summary, DetailsTab::Files, DetailsTab::Diff];
+    let mut spans = Vec::new();
+    for (idx, tab) in tabs.iter().enumerate() {
+        if idx > 0 {
+            spans.push(Span::raw("  "));
+        }
+        let label = format!("[{}]", tab.title());
+        let style = if *tab == app.active_tab {
+            strong_style(app)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(label, style));
+    }
+    Line::from(spans)
+}
+
+fn summary_lines(app: &App, commit: &Commit) -> Vec<Line<'static>> {
+    let labels = app.refs.labels_for(&commit.oid);
+    let refs_value = if labels.is_empty() {
+        "none".to_string()
+    } else {
+        labels.join(", ")
+    };
+    let parents_value = if commit.parents.is_empty() {
+        "root commit".to_string()
+    } else {
+        commit
+            .parents
+            .iter()
+            .map(|parent| short_hash(parent).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let mut lines = vec![
+        labeled_line(app, "Commit", commit.oid.clone()),
+        labeled_line(app, "Author", format!("{} <{}>", commit.author, commit.author_email)),
+        labeled_line(
+            app,
+            "Date",
+            format!(
+                "{}  ({})",
+                format_iso(commit.timestamp),
+                format_relative(commit.timestamp)
+            ),
+        ),
+        labeled_line(app, "Parents", parents_value),
+        labeled_line(app, "Refs", refs_value),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            format!("    {}", commit.subject),
+            strong_style(app),
+        )]),
+        labeled_line(app, "Body", String::new()),
+    ];
+
+    if commit.body.trim().is_empty() {
+        lines.push(Line::from("    (no body)"));
+    } else {
+        lines.extend(
+            commit
+                .body
+                .lines()
+                .take(8)
+                .map(|line| Line::from(format!("    {}", line))),
+        );
+    }
+
+    lines
+}
+
+fn files_lines(app: &App) -> Vec<Line<'static>> {
+    if let Some(message) = app.selected_inspect_error() {
+        return vec![Line::from(format!(
+            "Failed to load commit details: {}",
+            message
+        ))];
+    }
+
+    let Some(data) = app.selected_inspect_data() else {
+        return vec![Line::from("Loading changed files...")];
+    };
+
+    build_files_lines(data)
+}
+
+fn build_files_lines(data: &CommitInspectData) -> Vec<Line<'static>> {
+    if data.changed_files.is_empty() {
+        return vec![Line::from("(no changed files)")];
+    }
+
+    let mut lines: Vec<Line<'static>> = data
+        .changed_files
+        .iter()
+        .map(|file| {
+            let symbol = match file.change_kind {
+                ChangeKind::Added => "A",
+                ChangeKind::Modified => "M",
+                ChangeKind::Deleted => "D",
+                ChangeKind::Renamed => "R",
+                ChangeKind::Copied => "C",
+                ChangeKind::TypeChanged => "T",
+                ChangeKind::Unmerged => "U",
+                ChangeKind::Unknown(_) => "?",
+            };
+
+            let text = match &file.old_path {
+                Some(old_path) => format!("{symbol}  {old_path} -> {}", file.path),
+                None => format!("{symbol}  {}", file.path),
+            };
+            Line::from(text)
+        })
+        .collect();
+
+    if data.file_list_truncated {
+        lines.push(Line::from("... file list truncated"));
+    }
+
+    lines
+}
+
+fn diff_lines(app: &App) -> Vec<Line<'static>> {
+    if let Some(message) = app.selected_inspect_error() {
+        return vec![Line::from(format!(
+            "Failed to load commit details: {}",
+            message
+        ))];
+    }
+
+    let Some(data) = app.selected_inspect_data() else {
+        return vec![Line::from("Loading diff preview...")];
+    };
+
+    let mut lines: Vec<Line<'static>> = data
+        .diff_text
+        .lines()
+        .map(|line| Line::from(line.to_string()))
+        .collect();
+
+    if data.diff_truncated && !data.diff_text.contains("... diff truncated;") {
+        lines.push(Line::from(
+            "... diff truncated; open in GitHub or use git show for the full patch",
+        ));
+    }
+
+    lines
+}
+
 pub fn render_filter_bar(frame: &mut Frame, app: &App, area: Rect) {
     let text = if app.filter.is_empty() {
         "Search: (subject, body, author, hash, email, refs)".to_string()
@@ -203,23 +282,70 @@ pub fn render_filter_bar(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Style::default().add_modifier(Modifier::REVERSED)
     };
-    let p = Paragraph::new(text).style(style);
-    frame.render_widget(p, area);
+
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
-/// Render a help line at the very bottom of the screen.
 pub fn render_help(frame: &mut Frame, app: &App, area: Rect) {
-    let text = " j/k:move  Enter:toggle details  /:filter  r:reload  Esc:clear  q:quit ";
-    let style = if app.colors_enabled {
+    let text = app.status_message.as_deref().unwrap_or(
+        " j/k:move  Tab:tabs  y:copy  o:open  /:filter  r:reload  ?:help  q:quit ",
+    );
+
+    let style = if app.status_message.is_some() {
+        accent_style(app)
+    } else if app.colors_enabled {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default()
     };
-    let p = Paragraph::new(text).style(style);
-    frame.render_widget(p, area);
+
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
-/// Map a lane index to a terminal colour for visual variety.
+pub fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Help ")
+        .title_style(title_style(app));
+
+    let lines = vec![
+        Line::from(vec![Span::styled("Navigation", strong_style(app))]),
+        Line::from("  j/k, arrows: move selection"),
+        Line::from("  g / G: jump to top / bottom"),
+        Line::from("  Enter: collapse or expand details"),
+        Line::from(""),
+        Line::from(vec![Span::styled("Search", strong_style(app))]),
+        Line::from("  /: enter search"),
+        Line::from("  Esc: clear search or close help"),
+        Line::from("  n / N: next / previous search result"),
+        Line::from(""),
+        Line::from(vec![Span::styled("Tabs", strong_style(app))]),
+        Line::from("  Tab / Shift-Tab: cycle detail tabs"),
+        Line::from("  PageUp / PageDown: scroll details"),
+        Line::from("  Ctrl-u / Ctrl-d: half-page scroll"),
+        Line::from(""),
+        Line::from(vec![Span::styled("Actions", strong_style(app))]),
+        Line::from("  y: copy commit hash"),
+        Line::from("  o: open commit in GitHub"),
+        Line::from("  r: reload repository state"),
+        Line::from(""),
+        Line::from(vec![Span::styled("Quit", strong_style(app))]),
+        Line::from("  ?: toggle help"),
+        Line::from("  q: close help or quit"),
+    ];
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn labeled_line(app: &App, label: &str, value: String) -> Line<'static> {
+    let mut spans = vec![Span::styled(format!("{label:<7} "), accent_style(app))];
+    if !value.is_empty() {
+        spans.push(Span::raw(value));
+    }
+    Line::from(spans)
+}
+
 fn lane_to_color(lane: usize) -> Color {
     const COLORS: [Color; 7] = [
         Color::Blue,
