@@ -1,76 +1,110 @@
-# Security and Reliability Report (gitviz)
-
-Date: 2026-02-24
-Scope: `/Users/emilzimmermann/gitviz` (root crate) and `/Users/emilzimmermann/gitviz/gitviz` (nested duplicate crate)
+# Security Review Report
 
 ## Executive Summary
 
-Core unit tests pass, and baseline CLI smoke checks behave correctly. One high-impact denial-of-service condition was identified in timestamp formatting for extreme commit dates, and one medium integrity issue was identified in commit parsing behavior for malformed commit metadata.
+This repository does not appear to contain committed secrets, private keys, or obviously unsafe public-facing code paths. I did not find a reason to avoid sharing the GitHub repository publicly.
 
-## Test Execution Summary
+The main residual risks are supply-chain hardening issues around GitHub Actions and the npm installer path, not direct exploitable flaws in the Rust application itself.
 
-### Automated tests
+## Scope
 
-- `cargo test` in `/Users/emilzimmermann/gitviz`: **PASS** (13/13)
-- `cargo test` in `/Users/emilzimmermann/gitviz/gitviz`: **PASS** (13/13)
-- `cargo check --release` in `/Users/emilzimmermann/gitviz`: **PASS**
+- Local repository review
+- GitHub workflow and release automation review
+- npm installer review
+- Secret/material exposure scan
 
-### Smoke tests
+## Critical
 
-- `cargo run -- --help`: **PASS**
-- `cargo run -- --repo /tmp/does-not-exist-gitviz-smoke --max 10`: **PASS** (expected error path)
-- `cargo run -- --repo /Users/emilzimmermann/gitviz --max 10 --since definitely_not_a_ref`: **PASS** (expected git error surfaced)
-- PTY interactive run against `/Users/emilzimmermann/gitviz` (`q` quit path): **PASS**
+No critical findings.
 
-### Tooling gaps
+## High
 
-- `cargo clippy --all-targets --all-features -- -D warnings`: **NOT RUN** (`cargo-clippy` not installed)
-- `cargo fmt --all -- --check`: **NOT RUN** (`cargo-fmt` / `rustfmt` not installed)
-- `cargo audit`: **NOT RUN** (`cargo-audit` not installed)
+No high-severity findings.
 
-## Findings
+## Medium
 
-## [HIGH] F-001: CPU denial-of-service via extreme commit timestamps
+### M-01: npm postinstall verifies a checksum fetched from the same mutable release channel
 
-Impact: A repository containing an extreme timestamp can cause the TUI to hang while rendering commit details.
+Affected file:
+- [packaging/npm/scripts/postinstall.js](/Users/emilzimmermann/gitviz/packaging/npm/scripts/postinstall.js:92)
 
-Code references:
-- `/Users/emilzimmermann/gitviz/src/util/fmt.rs:42`
-- `/Users/emilzimmermann/gitviz/src/util/fmt.rs:73`
-- `/Users/emilzimmermann/gitviz/src/ui/widgets.rs:125`
+Relevant lines:
+- [packaging/npm/scripts/postinstall.js](/Users/emilzimmermann/gitviz/packaging/npm/scripts/postinstall.js:92)
+- [packaging/npm/scripts/postinstall.js](/Users/emilzimmermann/gitviz/packaging/npm/scripts/postinstall.js:105)
+- [packaging/npm/scripts/postinstall.js](/Users/emilzimmermann/gitviz/packaging/npm/scripts/postinstall.js:108)
 
-Details:
-- `format_iso(ts: i64)` converts `ts` to `u64`, then `days_to_ymd` iterates year-by-year in a loop.
-- With very large timestamps (for example, `9223372036854775807`), this loop becomes effectively unbounded in practical runtime.
-- The function is called during details rendering each frame, so the UI can stall before drawing.
+The npm installer downloads both the archive and its `.sha256` file from the same GitHub release and trusts that checksum for verification. This protects against transit corruption, but it does not provide independent authenticity if the release assets themselves are replaced or the release channel is compromised.
 
-Reproduction evidence:
-- A crafted commit object in `/tmp/gitviz-negts` with `%at=9223372036854775807` was created.
-- Running `cargo run -- --repo /tmp/gitviz-negts --max 10` in PTY enters alternate screen but does not complete first frame render.
+Impact:
+- A compromised release publishing path could swap both the binary and checksum and still pass local verification.
 
-Recommendation:
-- Replace manual calendar conversion with a constant-time datetime conversion library (`time` or `chrono`) with explicit bounds checking.
-- Reject or clamp unsupported timestamps before formatting.
+Suggested remediation:
+- Prefer shipping platform-specific packages with embedded hashes, or verify a detached signature/public signing key that is not fetched from the same mutable asset set.
+- If you keep this model, document it clearly so users understand they are trusting GitHub release integrity, not an out-of-band signature chain.
 
-## [MEDIUM] F-002: Silent commit dropping on malformed git-log records
+## Low
 
-Impact: Malformed commit metadata can be silently omitted from view, causing integrity gaps in what the user sees.
+### L-01: GitHub Actions are pinned to version tags, not immutable commit SHAs
 
-Code references:
-- `/Users/emilzimmermann/gitviz/src/git/parser.rs:6`
-- `/Users/emilzimmermann/gitviz/src/git/parser.rs:39`
-- `/Users/emilzimmermann/gitviz/src/git/mod.rs:44`
+Affected files:
+- [ci.yml](/Users/emilzimmermann/gitviz/.github/workflows/ci.yml:14)
+- [package-smoke.yml](/Users/emilzimmermann/gitviz/.github/workflows/package-smoke.yml:14)
+- [prelaunch-checklist.yml](/Users/emilzimmermann/gitviz/.github/workflows/prelaunch-checklist.yml:21)
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:34)
 
-Details:
-- `parse_commits` uses `filter_map(parse_commit_record)`, so any parse failure drops the record without error.
-- Timestamp parse failure (`parts[4].parse::<i64>().ok()?`) causes commit omission.
-- `load_commits` does not surface dropped-record counts; malformed output can yield incomplete graphs silently.
+Representative examples:
+- [ci.yml](/Users/emilzimmermann/gitviz/.github/workflows/ci.yml:14)
+- [ci.yml](/Users/emilzimmermann/gitviz/.github/workflows/ci.yml:17)
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:34)
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:112)
 
-Recommendation:
-- Return structured parse diagnostics (parsed commits + rejected count/errors).
-- Fail fast (or display warning) when non-empty output produces parse failures.
+The workflows use references such as `actions/checkout@v4`, `actions/setup-node@v4`, and `softprops/action-gh-release@v2`. This is common, but it leaves you exposed to an upstream tag-retarget or compromised action release.
 
-## Notes
+Impact:
+- Compromise of an upstream GitHub Action tag could affect CI or release automation.
 
-- `run_git` uses `Command::new("git")` with direct argument passing (no shell invocation), which is good and avoids shell injection risk.
-- Terminal control chars in displayed strings are mitigated by ratatui’s control-character filtering in buffer rendering.
+Suggested remediation:
+- Pin third-party actions to full commit SHAs and optionally annotate each line with the human-friendly version comment.
+
+### L-02: Release workflow grants `contents: write` to the full workflow instead of only write-needing jobs
+
+Affected file:
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:8)
+
+Relevant lines:
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:8)
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:96)
+- [release.yml](/Users/emilzimmermann/gitviz/.github/workflows/release.yml:160)
+
+The release workflow sets `permissions: contents: write` at the workflow level. Only the jobs that create a GitHub release or push to `gh-pages` actually need elevated repository write permissions.
+
+Impact:
+- If a build step in an earlier job were ever compromised, it would inherit broader repository write access than necessary.
+
+Suggested remediation:
+- Default the workflow to read-only permissions and set `contents: write` only on `create-release` and other jobs that actually need it.
+
+## Informational
+
+### I-01: No committed secrets were found in the repository scan
+
+Evidence:
+- No `.env`, key, certificate, or common token material was found in the working tree.
+- The repository ignore rules exclude generated artifacts and local npm download directories: [.gitignore](/Users/emilzimmermann/gitviz/.gitignore:1)
+
+### I-02: The Rust app uses subprocess arguments directly instead of shell interpolation
+
+Affected file:
+- [src/git/commands.rs](/Users/emilzimmermann/gitviz/src/git/commands.rs:5)
+
+The Git commands are executed with `std::process::Command` and argument arrays, not by constructing shell command strings. That materially reduces command injection risk for repository path and revision arguments.
+
+## Recommendation
+
+It is reasonable to share the GitHub repository publicly and use the repo as the main destination instead of maintaining a separate landing page.
+
+Before posting:
+
+1. Add 2-4 strong screenshots or one short terminal GIF to the README and your X post.
+2. If you want better hardening, fix M-01 first, then L-01 and L-02.
+3. If you do not want to maintain a public website, remove the landing-page mention from the README so the repo tells one clear story.
