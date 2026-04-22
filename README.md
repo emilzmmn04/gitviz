@@ -25,7 +25,12 @@ This repository is the canonical project home for `gitviz`: releases, install in
 
 ## Install
 
-### Cargo (source install, Rust >= 1.70)
+Current status:
+
+- Available now: source install from this repository
+- Planned for the first tagged release: npm, Homebrew, and Debian artifacts
+
+### Source install (Rust >= 1.70)
 
 ```bash
 git clone https://github.com/emilzmmn04/gitviz.git
@@ -33,24 +38,7 @@ cd gitviz
 cargo install --path .
 ```
 
-### npm (prebuilt binary)
-
-```bash
-npm i -g @emilzmmn04/gitviz
-```
-
-### Homebrew (prebuilt binary)
-
-```bash
-brew tap emilzmmn04/tap
-brew install gitviz
-```
-
-### Debian package (release artifact)
-
-```bash
-sudo dpkg -i ./gitviz_<version>_amd64.deb
-```
+Prebuilt install options will be documented here once the first tagged release is published and verified.
 
 ### Run without installing
 
