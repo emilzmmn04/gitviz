@@ -344,28 +344,33 @@ fn copy_to_clipboard(text: &str) -> Result<()> {
 fn open_url(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
-            .arg(url)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("failed to run open")?;
+        run_quiet_command("open", &[url])?;
         return Ok(());
     }
 
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open")
-            .arg(url)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("failed to run xdg-open")?;
+        run_quiet_command("xdg-open", &[url])?;
         return Ok(());
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     anyhow::bail!("browser open unsupported on this platform")
+}
+
+fn run_quiet_command(command: &str, args: &[&str]) -> Result<()> {
+    let status = Command::new(command)
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| format!("failed to run {}", command))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!("{} exited with {}", command, status)
+    }
 }
 
 fn pipe_to_command(command: &str, args: &[&str], input: &str) -> Result<()> {
@@ -386,5 +391,27 @@ fn pipe_to_command(command: &str, args: &[&str], input: &str) -> Result<()> {
         Ok(())
     } else {
         anyhow::bail!("{} exited with {}", command, status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_quiet_command;
+
+    #[test]
+    fn run_quiet_command_returns_ok_on_zero_exit() {
+        #[cfg(unix)]
+        {
+            assert!(run_quiet_command("sh", &["-c", "exit 0"]).is_ok());
+        }
+    }
+
+    #[test]
+    fn run_quiet_command_returns_error_on_nonzero_exit() {
+        #[cfg(unix)]
+        {
+            let err = run_quiet_command("sh", &["-c", "exit 3"]).unwrap_err();
+            assert!(err.to_string().contains("exited with"));
+        }
     }
 }

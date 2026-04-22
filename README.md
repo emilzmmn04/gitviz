@@ -186,6 +186,8 @@ Optional repository secrets (only needed for the corresponding channel):
 
 - `NPM_TOKEN` for npm publishing (`@emilzmmn04/gitviz`)
 - `HOMEBREW_TAP_GITHUB_TOKEN` for updating `emilzmmn04/homebrew-tap`
+- `APT_GPG_PRIVATE_KEY` for signing the APT repository metadata
+- `APT_GPG_PASSPHRASE` optional passphrase for an encrypted APT signing key
 
 ## Railway Landing Page Prelaunch
 
@@ -209,6 +211,8 @@ You can run the checks locally:
 # 2) Verify required release secrets and key material
 export NPM_TOKEN=...
 export HOMEBREW_TAP_GITHUB_TOKEN=...
+export APT_GPG_PRIVATE_KEY="$(cat /path/to/private-key.asc)"
+export APT_GPG_PASSPHRASE=... # optional for encrypted keys
 ./scripts/check_release_secrets.sh
 
 # 3) Smoke-test Railway landing page
