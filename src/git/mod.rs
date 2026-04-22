@@ -69,18 +69,18 @@ fn parse_git_log_output(output: &str) -> Result<Vec<Commit>> {
 
 /// Load refs (HEAD, local branches, remote branches, tags) from the repository.
 pub fn load_refs(repo: &Path) -> Result<Refs> {
-    let mut refs = Refs::default();
-
-    // HEAD oid
-    refs.head_oid = commands::run_git(repo, &["rev-parse", "HEAD"])
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-
-    // Symbolic HEAD (branch name) — exits non-zero when detached
-    refs.head_name = commands::try_run_git(repo, &["symbolic-ref", "-q", "HEAD"])
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let mut refs = Refs {
+        // HEAD oid
+        head_oid: commands::run_git(repo, &["rev-parse", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+        // Symbolic HEAD (branch name) — exits non-zero when detached
+        head_name: commands::try_run_git(repo, &["symbolic-ref", "-q", "HEAD"])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        ..Refs::default()
+    };
 
     let ref_out = commands::try_run_git(repo, &["show-ref"]).unwrap_or_default();
     for (refname, oid) in parser::parse_show_ref(&ref_out) {

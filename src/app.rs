@@ -273,7 +273,7 @@ impl App {
             return false;
         };
 
-        self.inspect_cache.get(oid).is_none()
+        !self.inspect_cache.contains_key(oid)
     }
 
     pub fn insert_loading_for_selected(&mut self) -> Option<String> {

@@ -28,7 +28,7 @@ This repository is the canonical project home for `gitviz`: releases, install in
 Current status:
 
 - Available now: source install from this repository
-- Planned for the first tagged release: npm, Homebrew, and Debian artifacts
+- Planned for the first tagged release: crates.io, npm, Homebrew, and Debian artifacts
 
 ### Source install (Rust >= 1.70)
 
@@ -39,6 +39,33 @@ cargo install --path .
 ```
 
 Prebuilt install options will be documented here once the first tagged release is published and verified.
+
+Once the first tagged release is published, install options will be:
+
+### crates.io
+
+```bash
+cargo install gitviz
+```
+
+### npm
+
+```bash
+npm i -g @emilzmmn04/gitviz
+```
+
+### Homebrew
+
+```bash
+brew tap emilzmmn04/homebrew-tap
+brew install gitviz
+```
+
+### Debian package
+
+```bash
+sudo dpkg -i ./gitviz_<version>_amd64.deb
+```
 
 ### Run without installing
 
@@ -171,9 +198,11 @@ Package smoke coverage lives in `.github/workflows/package-smoke.yml`.
 Release artifact dry-runs live in `.github/workflows/release-dry-run.yml`.
 
 The documented release gate is in [docs/release-checklist.md](docs/release-checklist.md).
+External account/token/bootstrap requirements live in [docs/publishing-bootstrap.md](docs/publishing-bootstrap.md).
 
 Optional repository secrets (only needed for the corresponding channel):
 
+- `CARGO_REGISTRY_TOKEN` for publishing the crate to crates.io
 - `NPM_TOKEN` for npm publishing (`@emilzmmn04/gitviz`)
 - `HOMEBREW_TAP_GITHUB_TOKEN` for updating `emilzmmn04/homebrew-tap`
 - `APT_GPG_PRIVATE_KEY` for signing the APT repository metadata

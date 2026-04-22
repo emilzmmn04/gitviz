@@ -317,7 +317,7 @@ fn copy_to_clipboard(text: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         pipe_to_command("pbcopy", &[], text)?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
@@ -345,13 +345,13 @@ fn open_url(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         run_quiet_command("open", &[url])?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
     {
         run_quiet_command("xdg-open", &[url])?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]

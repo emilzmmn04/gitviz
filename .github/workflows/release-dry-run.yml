@@ -12,9 +12,24 @@ permissions:
   contents: read
 
 jobs:
+  verify-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify release version alignment
+        run: ./scripts/verify_version_alignment.sh "${{ inputs.version }}"
+
   build-binaries:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    needs: verify-version
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +106,7 @@ jobs:
 
   npm-pack:
     runs-on: ubuntu-24.04
+    needs: verify-version
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,7 +124,7 @@ jobs:
       - name: Build npm tarball
         run: |
           cd packaging/npm
-          npm version "${{ inputs.version }}" --no-git-tag-version
+          mkdir -p ../dist
           npm pack --pack-destination ../dist
 
       - name: Upload npm artifact
@@ -117,6 +133,19 @@ jobs:
           name: dry-run-npm
           path: packaging/dist/*.tgz
           if-no-files-found: error
+
+  cargo-publish-dry-run:
+    runs-on: ubuntu-24.04
+    needs: verify-version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify crate publish dry run
+        run: cargo publish --dry-run --locked
 
   render-homebrew:
     runs-on: ubuntu-24.04

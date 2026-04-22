@@ -67,13 +67,21 @@ pub fn compute_layout(commits: &[Commit]) -> Vec<GraphRow> {
 
         for parent_lane in extra_parent_lanes {
             if parent_lane > commit_lane {
-                for lane in (commit_lane + 1)..parent_lane {
-                    cells[lane] = GraphCell::Horizontal;
+                for cell in cells
+                    .iter_mut()
+                    .take(parent_lane)
+                    .skip(commit_lane + 1)
+                {
+                    *cell = GraphCell::Horizontal;
                 }
                 cells[parent_lane] = GraphCell::CornerDownLeft;
             } else if parent_lane < commit_lane {
-                for lane in (parent_lane + 1)..commit_lane {
-                    cells[lane] = GraphCell::Horizontal;
+                for cell in cells
+                    .iter_mut()
+                    .take(commit_lane)
+                    .skip(parent_lane + 1)
+                {
+                    *cell = GraphCell::Horizontal;
                 }
                 cells[parent_lane] = GraphCell::CornerDownRight;
             }

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v2
   pull_request:
 
 jobs:
@@ -12,6 +13,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Cargo/npm version alignment
+        run: ./scripts/verify_version_alignment.sh
 
       - name: Validate Homebrew template placeholders
         run: |
@@ -25,11 +37,8 @@ jobs:
           rg --fixed-strings "__LINUX_X64_URL__" packaging/homebrew/gitviz.rb
           rg --fixed-strings "__LINUX_X64_SHA__" packaging/homebrew/gitviz.rb
 
-      - name: Validate version consistency
-        run: |
-          cargo_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
-          npm_version="$(node -p "require('./packaging/npm/package.json').version")"
-          test "$cargo_version" = "$npm_version"
+      - name: Verify crate packages cleanly
+        run: cargo publish --dry-run --locked
 
   smoke-ubuntu:
     runs-on: ubuntu-24.04
